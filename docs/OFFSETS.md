@@ -1,5 +1,8 @@
 # CS2 offsets — CheatOffsets
 
+Runtime header: `src/sdk/offsets.hpp`  
+Current dump: **a2x/cs2-dumper 2026-09-10 12:36 UTC**, game update **14181**.
+
 Primary documentation for this project comes from:
 
 - Site: https://www.cheatoffsets.com/

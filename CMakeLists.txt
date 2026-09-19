@@ -8,6 +8,10 @@ set(LIAN "${CMAKE_SOURCE_DIR}/vendor/imgui-lianflow")
 
 add_executable(CS2 WIN32
     src/app/main.cpp
+    src/sdk/memory.cpp
+    src/sdk/game.cpp
+    src/sdk/vis.cpp
+    src/features/esp.cpp
     "${LIAN}/imgui.cpp"
     "${LIAN}/imgui_draw.cpp"
     "${LIAN}/imgui_tables.cpp"
@@ -40,6 +44,7 @@ target_link_libraries(CS2 PRIVATE
     freetype
     d3dx11
     winmm
+    dwmapi
 )
 
 target_compile_definitions(CS2 PRIVATE

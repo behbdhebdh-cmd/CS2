@@ -1,21 +1,28 @@
 # CS2
 
-Private overlay **setup** for a personal CS2 HVH server. This repository is
-intentionally incomplete: folder layout, ImGui, a trimmed LianFlow menu, and
-offset documentation. **No gameplay features are implemented.**
+Private bot-match overlay for a personal CS2 HVH server.
 
-Use it as a vibe-coding base. Keep the LianFlow look, delete widgets you do not
-need, then fill `src/features/` later.
-
-## Status
+## Status (v2)
 
 | Area | State |
 | --- | --- |
-| Project layout | done |
-| ImGui + FreeType + DX11 | vendored |
-| LianFlow UI (trimmed) | done — visual shell only |
-| Offset docs | done — [CheatOffsets CS2](https://www.cheatoffsets.com/g/cs2) |
-| Process / memory / features | **not started** |
+| DX11 overlay | click-through when menu is closed |
+| LianFlow menu | Insert / F7 toggle, ESC hide, F8 unload |
+| ESP | Corner / 3D / Filled + glass health, no positional lag |
+| Colors | RGB sliders in the Visuals panel |
+| Vis check | BVH raycast against `.tri` meshes in `maps/tri/` |
+| Aim / trigger | UI only, not wired |
+
+**Insert** opens the menu. While it is closed the overlay does not eat mouse or
+keyboard input. While it is open, only the panel itself is interactive; the rest
+of the game stays clickable.
+
+Generate meshes (once, locally — not in git):
+
+```bat
+cd cphys-extractor
+dotnet run -c Release -- --official --tri --out D:\CS2\maps --nopause
+```
 
 ## UI base: ImGui LianFlow
 
@@ -30,15 +37,14 @@ Rules for continuing work:
    aim pages, and an Exploits tab. Those are already stripped in `src/app/main.cpp`.
 3. Do not add a widget unless you will actually wire it.
 4. Branding, accent color, and tab names live in `src/app/main.cpp`.
-5. Toggle the menu with **Insert**.
+5. Toggle the menu with **Insert** / **F7**.
 
 Current tabs:
 
 ```
+Visuals    Players
 Combat     Aim, Trigger
-Visuals    Players, Radar
-Misc       General
-Settings   Menu, Config
+Settings   Menu
 ```
 
 Details: [`docs/UI.md`](docs/UI.md)

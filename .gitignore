@@ -10,6 +10,16 @@ CMakeUserPresets.json
 # Extract leftover
 _extract/
 
+# Generated map meshes (too large for git; extract locally)
+maps/tri/
+*.tri
+!maps/README.md
+
+# Extractor build
+cphys-extractor/bin/
+cphys-extractor/obj/
+cphys-extractor/.vs/
+
 # Compiler / IDE
 *.obj
 *.pdb

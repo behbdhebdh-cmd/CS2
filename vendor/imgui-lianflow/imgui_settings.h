@@ -62,12 +62,12 @@ namespace utils
 
 inline namespace c
 {
-	inline ImColor main_color = rgba(173, 143, 233, 1);
-	inline ImColor second_color = rgba(100, 92, 122, 1);
+	inline ImColor main_color = rgba(198, 208, 220, 1);
+	inline ImColor second_color = rgba(110, 118, 132, 1);
 	
-	inline ImColor background_color = rgba(20, 20, 20, 0.5);
+	inline ImColor background_color = rgba(12, 13, 16, 0.42);
 	inline ImColor stroke_color(255, 255, 255, 0);
-	inline ImColor window_bg_color = rgba(22, 22, 22, 0.71);
+	inline ImColor window_bg_color = rgba(14, 15, 18, 0.58);
 
 	inline ImVec4 separator = ImColor(22, 23, 26);
 
@@ -81,16 +81,16 @@ inline namespace c
 
 	inline namespace bg
 	{
-		inline ImVec4 background = rgba(22, 22, 22, 0.71);
-		inline ImVec2 size = ImVec2(850, 596);
-		inline float rounding = 15.f;
+		inline ImVec4 background = rgba(14, 15, 18, 0.58);
+		inline ImVec2 size = ImVec2(780, 540);
+		inline float rounding = 18.f;
 	}
 
 	inline namespace child
 	{
-		inline ImVec4 background = rgba(60, 60, 60, 0.25);
-		inline ImVec4 stroke = ImColor(18, 18, 24, 0);
-		inline float rounding = 8.f;
+		inline ImVec4 background = rgba(255, 255, 255, 0.035);
+		inline ImVec4 stroke = ImColor(230, 235, 240, 18);
+		inline float rounding = 10.f;
 	}
 
 	namespace page
