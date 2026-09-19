@@ -1,0 +1,38 @@
+# Build
+build/
+out/
+.vs/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeUserPresets.json
+
+# Extract leftover
+_extract/
+
+# Compiler / IDE
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.dll
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.ipch
+.idea/
+.vscode/
+
+# ImGui runtime
+imgui.ini
+
+# Secrets — never commit tokens
+.env
+*.pem
+github_token*
+token.txt

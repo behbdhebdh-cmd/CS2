@@ -1,0 +1,7 @@
+{
+  "project": "CS2",
+  "stage": "setup-only",
+  "menu_toggle": "Insert",
+  "accent": [173, 143, 233, 1.0],
+  "notes": "Placeholder config. Save/Load buttons in the menu are not wired yet."
+}
