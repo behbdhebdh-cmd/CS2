@@ -296,16 +296,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
                     ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
                     custom::Child("Color##R", ImVec2(half_w, full_h), true);
-                    {
-                        const ImGuiColorEditFlags cf = ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoOptions;
-                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                        ImGui::ColorEdit4("Enemy", g_menu.box_enemy, cf);
-                        ImGui::Dummy(ImVec2(0, 10));
-                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                        ImGui::ColorEdit4("Team", g_menu.box_team, cf);
-                        ImGui::Dummy(ImVec2(0, 12));
-                        ImGui::TextWrapped("RGB sliders sit in the panel so clicks stay on the menu.");
-                    }
+                    custom::ColorEdit4("Enemy", g_menu.box_enemy, picker_flags);
+                    custom::ColorEdit4("Team", g_menu.box_team, picker_flags);
                     custom::EndChild();
                 }
 
@@ -341,8 +333,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                 {
                     ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
                     custom::Child("Menu", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    ImGui::ColorEdit4("Accent", (float*)&c::main_color, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_Float);
+                    custom::ColorEdit4("Accent", (float*)&c::main_color, picker_flags);
                     custom::Checkbox("Watermark", &g_menu.misc_watermark);
                     ImGui::Dummy(ImVec2(0, 8));
                     ImGui::TextWrapped("INSERT or F7 toggles this panel. ESC hides it. F8 unloads the overlay.");
@@ -360,8 +351,20 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
             g_menu_w = c::bg::size.x;
             g_menu_h = c::bg::size.y;
-            g_hitn = 1;
-            g_hits[0] = { g_menu_x, g_menu_y, g_menu_w, g_menu_h };
+            g_hitn = 0;
+            g_hits[g_hitn++] = { g_menu_x, g_menu_y, g_menu_w, g_menu_h };
+            ImGuiContext& ig = *GImGui;
+            for (ImGuiWindow* w : ig.Windows) {
+                if (!w || w->Hidden || (!w->Active && !w->WasActive))
+                    continue;
+                if ((w->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) == 0)
+                    continue;
+                if (w->Size.x < 2.f || w->Size.y < 2.f)
+                    continue;
+                if (g_hitn >= 24)
+                    break;
+                g_hits[g_hitn++] = { w->Pos.x, w->Pos.y, w->Size.x, w->Size.y };
+            }
         } else {
             g_hitn = 0;
         }
@@ -448,9 +451,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(hWnd, &pt);
         const float mx = (float)pt.x, my = (float)pt.y;
-        if (mx >= g_menu_x && mx <= g_menu_x + g_menu_w &&
-            my >= g_menu_y && my <= g_menu_y + g_menu_h)
-            return HTCLIENT;
+        for (int i = 0; i < g_hitn; ++i) {
+            const HitRect& r = g_hits[i];
+            if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h)
+                return HTCLIENT;
+        }
         return HTTRANSPARENT;
     }
 
