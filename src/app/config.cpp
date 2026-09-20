@@ -368,6 +368,7 @@ bool ConfigStore::save(const std::string& name)
     json_int(o, "hit_time", g_menu.hit_time);
     json_vec4(o, "hit_normal", g_menu.hit_normal);
     json_vec4(o, "hit_head", g_menu.hit_head);
+    json_bool(o, "hit_debug", g_menu.hit_debug);
     json_bool(o, "hitlog_enable", g_menu.hitlog_enable);
     json_int(o, "hitlog_max", g_menu.hitlog_max);
     json_float(o, "hitlog_time", g_menu.hitlog_time);
@@ -522,6 +523,7 @@ bool ConfigStore::load(const std::string& name)
     i("hit_time", next.hit_time, 150, 500);
     c4("hit_normal", next.hit_normal);
     c4("hit_head", next.hit_head);
+    b("hit_debug", next.hit_debug);
     b("hitlog_enable", next.hitlog_enable);
     i("hitlog_max", next.hitlog_max, 1, 8);
     f("hitlog_time", next.hitlog_time, 2.f, 8.f);

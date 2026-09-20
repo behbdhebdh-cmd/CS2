@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -76,10 +77,52 @@ uintptr_t g_lock_pawn = 0;
 int g_lock_bone = -1;
 ULONGLONG g_lock_ms = 0;
 
-constexpr ULONGLONG kShotWindowMs = 600;
-constexpr ULONGLONG kLockWindowMs = 800;
+constexpr ULONGLONG kShotWindowMs = 400;
+constexpr ULONGLONG kLockWindowMs = 600;
 constexpr ULONGLONG kKillShotWindowMs = 900;
 constexpr ULONGLONG kKillLockWindowMs = 1000;
+// Crosshair must sit this close to the victim's head for the damage to
+// count as ours without a shot edge or aim lock (covers plain manual aim,
+// knife, and a stale m_iShotsFired read).
+constexpr float kCrosshairWindowDeg = 1.5f;
+
+void hit_dbg(const char* fmt, ...)
+{
+    if (!g_menu.hit_debug)
+        return;
+    char line[512]{};
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    OutputDebugStringA(line);
+    OutputDebugStringA("\n");
+    static FILE* fp = nullptr;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        fopen_s(&fp, "D:\\CS2\\configs\\hitlog_debug.log", "a");
+        if (fp) {
+            std::fprintf(fp, "--- hitlog debug session ---\n");
+            std::fflush(fp);
+        }
+    } else if (!fp) {
+        fopen_s(&fp, "D:\\CS2\\configs\\hitlog_debug.log", "a");
+    }
+    if (fp) {
+        std::fprintf(fp, "%s\n", line);
+        std::fflush(fp);
+    }
+}
+
+// World-anchored hit confirmation drawn at the victim's head.
+struct WorldMark {
+    Vec3 pos{};
+    ULONGLONG until = 0;
+    int dur = 300;
+    bool head = false;
+};
+std::vector<WorldMark> g_marks;
 
 void push_entry(Entry e)
 {
@@ -96,6 +139,7 @@ void hitlog_tick(const Game& game)
     if (!game.attached()) {
         g_hp.clear();
         g_log.clear();
+        g_marks.clear();
         g_marker_until = 0;
         g_last_shots = -1;
         g_last_shot_ms = 0;
@@ -133,7 +177,6 @@ void hitlog_tick(const Game& game)
     for (const Player& p : game.players()) {
         if (!p.pawn || p.pawn == game.local_pawn())
             continue;
-        const bool enemy = p.team != game.local_team();
         auto it = g_hp.find(p.pawn);
         if (it == g_hp.end()) {
             g_hp.emplace(p.pawn, Track{ p.health, p.name, 0, 2 });
@@ -142,22 +185,53 @@ void hitlog_tick(const Game& game)
         Track& tr = it->second;
         if (!p.name.empty())
             tr.name = p.name;
-        // Victim must be an enemy AND the damage must fall inside our shot
-        // or lock window. Incoming, team damage, and environment stay out.
-        if (track && enemy && p.health < tr.hp &&
-            (now - g_last_shot_ms < kShotWindowMs ||
-             (p.pawn == g_lock_pawn && now - g_lock_ms < kLockWindowMs))) {
-            const int dmg = tr.hp - p.health;
-            const int zone = (p.pawn == g_lock_pawn) ? bone_to_zone(g_lock_bone) : 2;
-            char buf[128]{};
-            std::snprintf(buf, sizeof(buf), "%s  %d",
-                          (p.name.empty() ? tr.name : p.name).c_str(), dmg);
-            push_entry(Entry{ buf, zone, false, {}, now });
-            tr.last_dmg = now;
-            tr.last_zone = zone;
-            if (g_menu.hit_enable) {
-                g_marker_until = now + static_cast<ULONGLONG>((std::max)(60, g_menu.hit_time));
-                g_marker_head = (zone == 0);
+        // No team gate on purpose: deathmatch/FFA puts everyone on one team,
+        // so a same-team victim is a legit target there. Attribution runs
+        // purely on evidence — recent local shot, recent aim lock on that
+        // pawn, or crosshair on the victim right now. Damage to the local
+        // pawn never reaches this loop; unrelated crossfire only lands here
+        // if it coincides with our own fire, and the debug line below shows
+        // exactly which window let it through.
+        if (track && p.health < tr.hp) {
+            const Vec3 head = p.has_joint(Skel::Head)
+                ? p.joints[static_cast<int>(Skel::Head)] : p.eye;
+            const float cross = fov_degrees(game.view_angles(),
+                                            calc_angle(game.local_head(), head));
+            const ULONGLONG dt_shot = g_last_shot_ms ? now - g_last_shot_ms : ~0ULL;
+            const ULONGLONG dt_lock = (p.pawn == g_lock_pawn && g_lock_ms) ? now - g_lock_ms : ~0ULL;
+            const bool by_shot = dt_shot < kShotWindowMs;
+            const bool by_lock = dt_lock < kLockWindowMs;
+            const bool by_cross = cross < kCrosshairWindowDeg;
+            const bool ours = by_shot || by_lock || by_cross;
+
+            char why[96]{};
+            if (ours)
+                std::snprintf(why, sizeof(why), "OURS(%s%s%s)",
+                              by_shot ? "shot" : "", by_lock ? "lock" : "", by_cross ? "cross" : "");
+            else
+                std::snprintf(why, sizeof(why), "SKIP(window)");
+            hit_dbg("[hitlog] dmg %s t=%d localt=%d %d->%d cross=%.1f %s",
+                    (p.name.empty() ? tr.name : p.name).c_str(), p.team, game.local_team(),
+                    tr.hp, p.health, cross, why);
+
+            if (ours) {
+                const int dmg = tr.hp - p.health;
+                const int zone = (p.pawn == g_lock_pawn) ? bone_to_zone(g_lock_bone) : 2;
+                char buf[128]{};
+                std::snprintf(buf, sizeof(buf), "%s  %d",
+                              (p.name.empty() ? tr.name : p.name).c_str(), dmg);
+                push_entry(Entry{ buf, zone, false, {}, now });
+                tr.last_dmg = now;
+                tr.last_zone = zone;
+                const int dur = (std::max)(60, g_menu.hit_time);
+                if (g_menu.hit_enable) {
+                    g_marker_until = now + static_cast<ULONGLONG>(dur);
+                    g_marker_head = (zone == 0);
+                }
+                // World marker rides on the victim's head for the same span.
+                g_marks.push_back(WorldMark{ head, now + static_cast<ULONGLONG>(dur), dur, zone == 0 });
+                while (g_marks.size() > 6)
+                    g_marks.erase(g_marks.begin());
             }
         }
         tr.hp = p.health;
@@ -178,7 +252,17 @@ void hitlog_tick(const Game& game)
         if (!seen) {
             const bool ours = (now - g_last_shot_ms < kKillShotWindowMs) ||
                 (it->first == g_lock_pawn && now - g_lock_ms < kKillLockWindowMs);
-            if (track && ours && it->second.last_dmg && now - it->second.last_dmg < 2000) {
+            // Regular kill: damaged shortly before vanishing. One-tap: was
+            // healthy last tick and is gone now (damage and death landed in
+            // the same snapshot gap).
+            const bool had_dmg = it->second.last_dmg && now - it->second.last_dmg < 2000;
+            const bool one_tap = it->second.hp > 0 && ours;
+            hit_dbg("[hitlog] kill? %s lasthp=%d %s",
+                    it->second.name.c_str(), it->second.hp,
+                    (track && ours && (had_dmg || one_tap))
+                        ? (one_tap && !had_dmg ? "KILL(one-tap)" : "KILL")
+                        : "SKIP");
+            if (track && ours && (had_dmg || one_tap)) {
                 std::string icon;
                 if (g_menu.hitlog_kill_icon)
                     icon = weapon_icons::resolve(std::string{}, static_cast<uint16_t>(game.weapon_def()));
@@ -216,7 +300,7 @@ void hitlog_draw(ImDrawList* dl, const Game& game, float screen_w, float screen_
             const float gap = 5.f;
             float len = gap + static_cast<float>(std::clamp(g_menu.hit_size, 4, 24));
             if (g_marker_head)
-                len *= 1.f + 0.55f * std::exp(-age / 70.f);
+                len *= 1.f + 0.35f * std::exp(-age / 60.f);
             const ImVec2 p[4][2] = {
                 { ImVec2(cx - gap, cy - gap), ImVec2(cx - len, cy - len) },
                 { ImVec2(cx + gap, cy - gap), ImVec2(cx + len, cy - len) },
@@ -227,6 +311,39 @@ void hitlog_draw(ImDrawList* dl, const Game& game, float screen_w, float screen_
                 dl->AddLine(p[i][0], p[i][1], edge, thick + 2.f);
             for (int i = 0; i < 4; ++i)
                 dl->AddLine(p[i][0], p[i][1], col, thick);
+        }
+    }
+
+    // World markers: small X pinned to each victim's head for the same span
+    // as the center marker. Skips gracefully behind the camera.
+    if (g_menu.hit_enable && !g_marks.empty()) {
+        while (!g_marks.empty() && now >= g_marks.front().until)
+            g_marks.erase(g_marks.begin());
+        for (const WorldMark& m : g_marks) {
+            Vec2 s{};
+            if (!world_to_screen(m.pos, game.view_matrix(), screen_w, screen_h, s))
+                continue;
+            if (s.x < -40.f || s.x > screen_w + 40.f || s.y < -40.f || s.y > screen_h + 40.f)
+                continue;
+            const float age = static_cast<float>(m.dur) - static_cast<float>(m.until - now);
+            float a = (std::min)(age / 40.f, 1.f) * (1.f - age / static_cast<float>((std::max)(60, m.dur)));
+            a *= clampf(g_menu.hit_alpha, 0.f, 1.f);
+            if (a <= 0.01f)
+                continue;
+            const float* c = m.head ? g_menu.hit_head : g_menu.hit_normal;
+            const ImU32 col = ImGui::ColorConvertFloat4ToU32(
+                ImVec4(c[0], c[1], c[2], clampf(c[3] * a, 0.f, 1.f)));
+            const ImU32 edge = IM_COL32(0, 0, 0, static_cast<int>(210.f * a));
+            const float gap = 4.f;
+            const float len = gap + 9.f;
+            dl->AddLine(ImVec2(s.x - gap, s.y - gap), ImVec2(s.x - len, s.y - len), edge, 4.f);
+            dl->AddLine(ImVec2(s.x + gap, s.y - gap), ImVec2(s.x + len, s.y - len), edge, 4.f);
+            dl->AddLine(ImVec2(s.x - gap, s.y + gap), ImVec2(s.x - len, s.y + len), edge, 4.f);
+            dl->AddLine(ImVec2(s.x + gap, s.y + gap), ImVec2(s.x + len, s.y + len), edge, 4.f);
+            dl->AddLine(ImVec2(s.x - gap, s.y - gap), ImVec2(s.x - len, s.y - len), col, 2.f);
+            dl->AddLine(ImVec2(s.x + gap, s.y - gap), ImVec2(s.x + len, s.y - len), col, 2.f);
+            dl->AddLine(ImVec2(s.x - gap, s.y + gap), ImVec2(s.x - len, s.y + len), col, 2.f);
+            dl->AddLine(ImVec2(s.x + gap, s.y + gap), ImVec2(s.x + len, s.y + len), col, 2.f);
         }
     }
 

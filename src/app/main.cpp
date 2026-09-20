@@ -714,6 +714,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::SliderInt("Fade (ms)", &g_menu.hit_time, 150, 500);
                     custom::ColorEdit4("Normal", g_menu.hit_normal, picker_flags);
                     custom::ColorEdit4("Headshot", g_menu.hit_head, picker_flags);
+                    custom::Checkbox("Debug log", &g_menu.hit_debug);
                     ImGui::Dummy(ImVec2(0, 6));
                     ImGui::TextWrapped("Center X on damage. Headshot color applies when the hit lands on the locked head bone.");
                     custom::EndChild();

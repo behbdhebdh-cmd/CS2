@@ -122,6 +122,7 @@ struct MenuState {
     int  hit_time = 300;     // ms, 150..500
     float hit_normal[4] = { 1.f, 1.f, 1.f, 1.f };
     float hit_head[4] = { 0.98f, 0.72f, 0.30f, 1.f };
+    bool hit_debug = false;
 
     // Damage log
     bool hitlog_enable = true;
