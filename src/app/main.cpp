@@ -1,7 +1,10 @@
 #include "main.h"
 #include "directx_blur.h"
 #include "app/settings.hpp"
+#include "app/config.hpp"
 #include "features/esp.hpp"
+#include "features/weapon_icons_data.hpp"
+#include "features/combat.hpp"
 #include "sdk/game.hpp"
 #include "sdk/offsets.hpp"
 #include "sdk/vis.hpp"
@@ -10,7 +13,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <d3d11.h>
 #include <dwmapi.h>
 #include <tchar.h>
@@ -79,7 +84,9 @@ static bool key_edge(int vk)
     return edge;
 }
 
-static const char* kBones[] = { "Head", "Neck", "Chest", "Pelvis" };
+static const char* kBones[] = { "Head", "Neck", "Chest", "Upper chest", "Head > chest", "Head > neck > chest" };
+static const char* kProfiles[] = { "Rifle", "Pistol", "Sniper" };
+static const char* kTriggerHitbox[] = { "Head", "Chest", "Body" };
 static const char* kBoxStyle[] = { "Corner Box", "3D Box", "Filled Box" };
 static const char* kHealthPosition[] = { "Left", "Right" };
 static const char* kHeadStyle[] = { "Circle", "Dot", "Box" };
@@ -115,12 +122,12 @@ static void set_passthrough(HWND hwnd, bool pass)
 
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
     if (pass)
-        ex |= WS_EX_TRANSPARENT;
+        ex |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE;
     else
-        ex &= ~WS_EX_TRANSPARENT;
+        ex &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | (pass ? SWP_NOACTIVATE : 0));
 }
 
 static void sync_overlay(HWND overlay, HWND game, int fallback_w, int fallback_h)
@@ -133,11 +140,13 @@ static void sync_overlay(HWND overlay, HWND game, int fallback_w, int fallback_h
         const int w = cr.right - cr.left;
         const int h = cr.bottom - cr.top;
         if (w >= 64 && h >= 64) {
-            SetWindowPos(overlay, HWND_TOPMOST, tl.x, tl.y, w, h, SWP_NOACTIVATE);
+            SetWindowPos(overlay, HWND_TOPMOST, tl.x, tl.y, w, h,
+                         g_menu_open ? 0 : SWP_NOACTIVATE);
             return;
         }
     }
-    SetWindowPos(overlay, HWND_TOPMOST, 0, 0, fallback_w, fallback_h, SWP_NOACTIVATE);
+    SetWindowPos(overlay, HWND_TOPMOST, 0, 0, fallback_w, fallback_h,
+                 g_menu_open ? 0 : SWP_NOACTIVATE);
 }
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
@@ -193,6 +202,25 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     io.Fonts->AddFontFromMemoryCompressedBase85TTF(icomoon_compressed_data_base85, 32.f, &icomoon_config, icomoon_ranges);
     font::inter_medium = io.Fonts->AddFontFromMemoryTTF(PoppinsMedium, sizeof(PoppinsMedium), 17.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
 
+    static const ImWchar weapon_icon_ranges[] = {
+        0xE000, 0xE0FF,
+        0xE100, 0xE1FF,
+        0xE200, 0xE2FF,
+        0
+    };
+    ImFontConfig weapon_icon_config;
+    weapon_icon_config.FontDataOwnedByAtlas = false;
+    weapon_icon_config.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
+    weapon_icon_config.OversampleH = 1;
+    weapon_icon_config.OversampleV = 1;
+    font::weapon_icons = io.Fonts->AddFontFromMemoryTTF(
+        (void*)obs_icons_bytes,
+        sizeof(obs_icons_bytes),
+        24.f,
+        &weapon_icon_config,
+        weapon_icon_ranges
+    );
+
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
@@ -216,12 +244,15 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     std::vector<s_tab> tabs_info;
     tabs_info.push_back({ "Visuals",  { "Players" } });
     tabs_info.push_back({ "Combat",   { "Aim", "Trigger" } });
-    tabs_info.push_back({ "Settings", { "Menu" } });
+    tabs_info.push_back({ "Settings", { "Menu", "Configs" } });
 
     c_tabs p_tabs(tabs_info);
     CNotifications p_notif;
     g_vis.set_search_dir("D:\\CS2\\maps");
     OffsetUpdate::instance().start();
+    ConfigStore::instance().startup();
+    static char g_cfg_name[64] = "config";
+    static std::string g_cfg_selected;
 
     bool done = false;
     DWORD last_window_sync = 0;
@@ -255,7 +286,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
             sync_overlay(hwnd, game_hwnd, screen_w, screen_h);
         }
 
-        g_game.tick(g_menu.vis_enable && g_menu.vis_skeleton);
+        g_game.tick((g_menu.vis_enable && g_menu.vis_skeleton) || g_menu.aim_enable || g_menu.trigger_enable);
         OffsetUpdate::instance().tick();
         if (g_game.attached())
             g_vis.tick(g_game.map_name());
@@ -281,8 +312,11 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         const float oh = static_cast<float>(overlay_rc.bottom - overlay_rc.top);
 
         draw_players(GetBackgroundDrawList(), g_game, g_vis, ow, oh, ImGui::GetTime());
+        combat_draw(GetBackgroundDrawList(), g_game, ow, oh);
         if (g_menu.misc_watermark)
             draw_watermark(GetBackgroundDrawList(), g_game, g_vis, ow);
+
+        combat_tick(g_game, g_vis, ImGui::GetIO().DeltaTime, g_menu_open);
 
         c::anim::speed = ImGui::GetIO().DeltaTime * 12.f;
         c::second_color = utils::GetDarkColor(c::main_color);
@@ -301,50 +335,84 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         s.WindowShadowSize = 8.f + 20.f * ease;
 
         if (g_menu_anim > 0.001f) {
+            static bool placed = false;
+            if (!placed) {
+                g_menu_w = std::clamp(g_menu_w, 720.f, ow);
+                g_menu_h = std::clamp(g_menu_h, 520.f, oh);
+                g_menu_x = (ow - g_menu_w) * 0.5f;
+                g_menu_y = (oh - g_menu_h) * 0.5f;
+                placed = true;
+            }
+            g_menu_w = std::clamp(g_menu_w, 720.f, ow);
+            g_menu_h = std::clamp(g_menu_h, 520.f, oh);
+            g_menu_x = std::clamp(g_menu_x, 0.f, (std::max)(0.f, ow - 160.f));
+            g_menu_y = std::clamp(g_menu_y, 0.f, (std::max)(0.f, oh - 90.f));
+            c::bg::size = ImVec2(g_menu_w, g_menu_h);
+
             const float scale = 0.965f + 0.035f * ease;
             const float y_off = (1.f - ease) * 16.f;
-            const ImVec2 rest((ow - c::bg::size.x) * 0.5f, (oh - c::bg::size.y) * 0.5f);
-            const ImVec2 pos(rest.x, rest.y + y_off);
-            const ImVec2 pivot(pos.x + c::bg::size.x * 0.5f, pos.y + c::bg::size.y * 0.5f);
+            const ImVec2 pos(g_menu_x, g_menu_y + y_off);
+            const ImVec2 sz(g_menu_w, g_menu_h);
+            const ImVec2 pivot(pos.x + sz.x * 0.5f, pos.y + sz.y * 0.5f);
 
             ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-            ImGui::SetNextWindowSize(c::bg::size);
+            ImGui::SetNextWindowSize(sz, ImGuiCond_Always);
             Begin("CS2", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
             {
                 ImDrawList* chrome = ImGui::GetWindowDrawList();
 
-                draw_background_blur(chrome, g_pSwapChain, g_pd3dDevice, g_pd3dDeviceContext, pos, pos + c::bg::size, c::bg::rounding);
-                chrome->AddRectFilled(pos, pos + c::bg::size, utils::GetColorWithAlpha(c::window_bg_color, c::window_bg_color.Value.w * s.Alpha), c::bg::rounding);
-                chrome->AddRect(pos, pos + c::bg::size, IM_COL32(230, 236, 242, (int)(42 * s.Alpha)), c::bg::rounding, 0, 1.f);
+                draw_background_blur(chrome, g_pSwapChain, g_pd3dDevice, g_pd3dDeviceContext, pos, pos + sz, c::bg::rounding);
+                chrome->AddRectFilled(pos, pos + sz, utils::GetColorWithAlpha(c::window_bg_color, c::window_bg_color.Value.w * s.Alpha), c::bg::rounding);
+                chrome->AddRect(pos, pos + sz, IM_COL32(230, 236, 242, (int)(42 * s.Alpha)), c::bg::rounding, 0, 1.f);
 
-                chrome->AddText(pos + ImVec2(18, c::bg::size.y - 32), c::label::default, "INSERT / F7  hide   ·   ESC  close   ·   F8  unload");
+                chrome->AddText(pos + ImVec2(18, sz.y - 32), c::label::default, "INSERT / F7  hide   ·   drag header   ·   resize corner   ·   F8  unload");
 
-                chrome->AddRectFilled(pos, pos + ImVec2(c::bg::size.x, 68), GetColorU32(c::child::background), c::bg::rounding, ImDrawFlags_RoundCornersTop);
+                chrome->AddRectFilled(pos, pos + ImVec2(sz.x, 68), GetColorU32(c::child::background), c::bg::rounding, ImDrawFlags_RoundCornersTop);
 
                 PushFont(font::bold_font);
                 chrome->AddText(utils::center_text(pos, pos + ImVec2(70, 68), ICON_FIRE_FILL) + ImVec2(0, 4.5f), main_color, ICON_FIRE_FILL);
                 chrome->AddText(ImVec2(pos.x + 60, utils::center_text(pos, pos + ImVec2(70, 68), "CS2").y), c::label::active, "CS2");
                 PopFont();
 
-                ImGui::SetCursorScreenPos(pos + ImVec2(c::bg::size.x - 50.f, 18.f));
+                ImGui::SetCursorScreenPos(pos);
+                ImGui::InvisibleButton("##drag_menu", ImVec2(sz.x - 70.f, 68.f));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+                if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                    g_menu_x += ImGui::GetIO().MouseDelta.x;
+                    g_menu_y += ImGui::GetIO().MouseDelta.y;
+                }
+
+                ImGui::SetCursorScreenPos(pos + ImVec2(sz.x - 50.f, 18.f));
                 if (ImGui::InvisibleButton("##close_menu", ImVec2(34.f, 34.f)))
                     g_menu_open = false;
                 {
                     const bool hov = ImGui::IsItemHovered();
-                    const ImVec2 x0 = pos + ImVec2(c::bg::size.x - 42.f, 22.f);
+                    const ImVec2 x0 = pos + ImVec2(sz.x - 42.f, 22.f);
                     chrome->AddCircleFilled(x0 + ImVec2(9, 9), 13.f, IM_COL32(255, 255, 255, hov ? 28 : 12), 24);
                     chrome->AddText(x0 + ImVec2(3, -1), IM_COL32(230, 235, 240, hov ? 230 : 170), "x");
                 }
 
-                g_menu_x = pos.x;
-                g_menu_y = pos.y;
-                g_menu_w = c::bg::size.x;
-                g_menu_h = c::bg::size.y;
+                {
+                    const ImVec2 grip = pos + sz - ImVec2(22.f, 22.f);
+                    ImGui::SetCursorScreenPos(grip);
+                    ImGui::InvisibleButton("##resize_menu", ImVec2(18.f, 18.f));
+                    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
+                    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                        g_menu_w += ImGui::GetIO().MouseDelta.x;
+                        g_menu_h += ImGui::GetIO().MouseDelta.y;
+                    }
+                    const ImU32 gc = IM_COL32(220, 230, 240, ImGui::IsItemHovered() || ImGui::IsItemActive() ? 180 : 90);
+                    chrome->AddLine(grip + ImVec2(4, 16), grip + ImVec2(16, 4), gc, 1.4f);
+                    chrome->AddLine(grip + ImVec2(8, 16), grip + ImVec2(16, 8), gc, 1.4f);
+                    chrome->AddLine(grip + ImVec2(12, 16), grip + ImVec2(16, 12), gc, 1.4f);
+                }
 
                 p_tabs.DrawTabs();
 
                 const float half_w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-                const float full_h = 400.f;
+                const float full_h = sz.y - 128.f;
 
                 if (p_tabs.IsTabActive(0))
                 {
@@ -365,6 +433,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::Combo("Skeleton style", &g_menu.vis_skeleton_style, kSkeletonStyle, IM_ARRAYSIZE(kSkeletonStyle));
                     custom::SliderInt("Skeleton thickness", &g_menu.vis_skeleton_thickness, 8, 30);
                     custom::Checkbox("Distance", &g_menu.vis_distance);
+                    custom::Checkbox("Weapon icon", &g_menu.vis_weapon_icon);
+                    custom::SliderInt("Icon size", &g_menu.vis_weapon_icon_size, 10, 32);
                     custom::Checkbox("Enemies only", &g_menu.vis_team_check);
                     custom::Checkbox("Visible only", &g_menu.vis_visible_only);
                     custom::SliderInt("Thickness", &g_menu.vis_thickness, 8, 28);
@@ -383,34 +453,68 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::ColorEdit4("Head team", g_menu.head_team, picker_flags);
                     custom::ColorEdit4("Skeleton visible", g_menu.skeleton_visible, picker_flags);
                     custom::ColorEdit4("Skeleton hidden", g_menu.skeleton_hidden, picker_flags);
+                    custom::ColorEdit4("Weapon icon", g_menu.weapon_icon_color, picker_flags);
                     custom::EndChild();
                 }
 
                 if (p_tabs.IsTabActive(1))
                 {
+                    CombatProfile& prof = g_menu.aim_edit_profile == 1 ? g_menu.aim_pistol
+                        : g_menu.aim_edit_profile == 2 ? g_menu.aim_sniper
+                        : g_menu.aim_rifle;
                     ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
-                    custom::Child("Aim", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
+                    custom::Child("Aim##L", ImVec2(half_w, full_h), true);
                     custom::Checkbox("Enable", &g_menu.aim_enable);
-                    custom::Checkbox("Visible only", &g_menu.aim_visible);
-                    custom::Checkbox("Recoil compensation", &g_menu.aim_recoil);
-                    custom::SliderInt("FOV", &g_menu.aim_fov, 1, 30);
-                    custom::SliderInt("Smooth", &g_menu.aim_smooth, 1, 40);
-                    custom::Combo("Bone", &g_menu.aim_bone, kBones, IM_ARRAYSIZE(kBones));
                     custom::Keybind("Aim key", &g_menu.aim_key, &g_menu.aim_key_mode);
-                    ImGui::Dummy(ImVec2(0, 8));
-                    ImGui::TextWrapped("Not wired yet — visuals first.");
+                    custom::Checkbox("Visible only", &g_menu.aim_visible);
+                    custom::Checkbox("Enemies only", &g_menu.aim_team_check);
+                    custom::Checkbox("Draw FOV", &g_menu.aim_fov_draw);
+                    custom::Combo("Weapon profile", &g_menu.aim_edit_profile, kProfiles, IM_ARRAYSIZE(kProfiles));
+                    custom::SliderFloat("FOV (deg)", &prof.fov, 0.5f, 15.f, "%.1f");
+                    custom::SliderFloat("Smooth", &prof.smooth, 0.f, 1.f, "%.2f");
+                    custom::Combo("Bone", &prof.bone, kBones, IM_ARRAYSIZE(kBones));
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Hold the key. Active in-game: %s",
+                                       weapon_class_name(classify_weapon(g_game.weapon_def())));
+                    custom::EndChild();
+
+                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+                    custom::Child("Humanize##R", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Humanize", &g_menu.aim_humanize);
+                    custom::SliderFloat("Reaction min (ms)", &g_menu.aim_reaction_min, 0.f, 300.f, "%.0f");
+                    custom::SliderFloat("Reaction max (ms)", &g_menu.aim_reaction_max, 0.f, 300.f, "%.0f");
+                    custom::SliderFloat("Noise", &g_menu.aim_noise, 0.f, 1.f, "%.2f");
+                    custom::SliderFloat("Overshoot", &g_menu.aim_overshoot, 0.f, 1.f, "%.2f");
+                    custom::SliderFloat("Miss chance", &g_menu.aim_miss, 0.f, 0.20f, "%.2f");
+                    custom::Checkbox("Recoil compensation", &g_menu.aim_recoil);
+                    custom::SliderFloat("RCS yaw", &prof.rcs_yaw, 0.f, 2.5f, "%.2f");
+                    custom::SliderFloat("RCS pitch", &prof.rcs_pitch, 0.f, 2.5f, "%.2f");
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Legit: FOV 1.5-5, smooth 0.5-0.8, humanize on. Hold ALT or a mouse button.");
                     custom::EndChild();
                 }
 
                 if (p_tabs.IsTabActive(2))
                 {
                     ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
-                    custom::Child("Trigger", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
+                    custom::Child("Trigger##L", ImVec2(half_w, full_h), true);
                     custom::Checkbox("Enable", &g_menu.trigger_enable);
-                    custom::SliderInt("Delay (ms)", &g_menu.trigger_delay_ms, 0, 200);
                     custom::Keybind("Trigger key", &g_menu.trigger_key, &g_menu.trigger_key_mode);
+                    custom::Combo("Hitbox", &g_menu.trigger_hitbox, kTriggerHitbox, IM_ARRAYSIZE(kTriggerHitbox));
+                    custom::SliderInt("First delay (ms)", &g_menu.trigger_first_ms, 0, 250);
+                    custom::SliderInt("Next delay (ms)", &g_menu.trigger_next_ms, 0, 400);
+                    custom::SliderInt("Jitter (ms)", &g_menu.trigger_jitter_ms, 0, 80);
+                    custom::EndChild();
+
+                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+                    custom::Child("Filters##R", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Visible only", &g_menu.trigger_visible);
+                    custom::Checkbox("Enemies only", &g_menu.trigger_team_check);
+                    custom::Checkbox("Scope check (snipers)", &g_menu.trigger_scope);
+                    custom::Checkbox("Anti-flash", &g_menu.trigger_flash);
+                    custom::Checkbox("Ignore knife / nades", &g_menu.trigger_weapon_filter);
                     ImGui::Dummy(ImVec2(0, 8));
-                    ImGui::TextWrapped("Not wired yet — visuals first.");
+                    ImGui::TextWrapped("Fires only while the key is held and a hitbox is under the crosshair.");
                     custom::EndChild();
                 }
 
@@ -432,6 +536,107 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     ImGui::Dummy(ImVec2(0, 8));
                     if (custom::Button("Unload overlay", ImVec2(ImGui::GetContentRegionAvail().x, 44)))
                         g_want_quit = true;
+                    custom::EndChild();
+                }
+
+                if (p_tabs.IsTabActive(4))
+                {
+                    auto& cfgs = ConfigStore::instance();
+                    const float panel_w = ImGui::GetContentRegionAvail().x - 21.f;
+                    ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
+                    custom::Child("Configs", ImVec2(panel_w, full_h), true);
+
+                    const float inner_w = ImGui::GetContentRegionAvail().x;
+                    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.f, 1.f, 1.f, 0.045f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(1.f, 1.f, 1.f, 0.08f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(1.f, 1.f, 1.f, 0.10f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.94f, 0.96f, 1.f));
+                    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.62f, 0.66f, 0.70f, 0.85f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.f, 14.f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0.f, 0.f));
+                    ImGui::PushItemWidth(inner_w);
+                    ImGui::InputTextEx("##n", "Type a name", g_cfg_name, IM_ARRAYSIZE(g_cfg_name),
+                                       ImVec2(inner_w, 48.f), ImGuiInputTextFlags_None);
+                    ImGui::PopItemWidth();
+                    ImGui::PopStyleVar(3);
+                    ImGui::PopStyleColor(5);
+
+                    ImGui::Dummy(ImVec2(0, 6));
+                    if (custom::Button("Save", ImVec2(inner_w, 44))) {
+                        const std::string want = sanitize_config_name(g_cfg_name);
+                        if (want.empty()) {
+                            p_notif.AddMessage("Enter a name (A-Z, 0-9)", ICON_ALERT_FILL, ImColor(210, 120, 120));
+                        } else if (cfgs.save(want)) {
+                            g_cfg_selected = want;
+                            std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", want.c_str());
+                            p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                        } else {
+                            p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                        }
+                    }
+                    ImGui::Dummy(ImVec2(0, 6));
+                    const float btn_w = (inner_w - 12.f) * 0.5f;
+                    if (custom::Button("Refresh", ImVec2(btn_w, 40))) {
+                        cfgs.refresh();
+                        p_notif.AddMessage(cfgs.status().c_str(), ICON_REFRESH_1_FILL, c::main_color);
+                    }
+                    ImGui::SameLine(0, 12.f);
+                    if (custom::Button("Default", ImVec2(btn_w, 40))) {
+                        cfgs.reset_defaults();
+                        p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                    }
+                    ImGui::NewLine();
+
+                    const std::string preview = sanitize_config_name(g_cfg_name);
+                    ImGui::Dummy(ImVec2(0, 2));
+                    if (preview.empty())
+                        ImGui::TextWrapped("Name: letters, numbers, dash or underscore.");
+                    else
+                        ImGui::TextWrapped("Will save as  %s.json   ·   %s", preview.c_str(), cfgs.status().c_str());
+
+                    ImGui::Dummy(ImVec2(0, 6));
+                    const float list_h = ImGui::GetContentRegionAvail().y - 6.f;
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.f, 1.f, 1.f, 0.03f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.f);
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.f, 10.f));
+                    ImGui::BeginChild("##cfg_list", ImVec2(inner_w, list_h > 70.f ? list_h : 70.f), true,
+                                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+                    if (cfgs.names().empty()) {
+                        ImGui::TextWrapped("No saved configs yet.");
+                    } else {
+                        for (const std::string& name : cfgs.names()) {
+                            ImGui::PushID(name.c_str());
+                            const float row_w = ImGui::GetContentRegionAvail().x;
+                            if (custom::Button("Load", ImVec2(90.f, 36.f))) {
+                                if (cfgs.load(name)) {
+                                    g_cfg_selected = name;
+                                    std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", name.c_str());
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                                } else {
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                }
+                            }
+                            ImGui::SameLine(0, 8.f);
+                            if (custom::Button("Delete", ImVec2(90.f, 36.f))) {
+                                if (cfgs.remove(name)) {
+                                    if (g_cfg_selected == name)
+                                        g_cfg_selected.clear();
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_DELETE_FILL, c::main_color);
+                                } else {
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                }
+                            }
+                            ImGui::SameLine(0, 12.f);
+                            ImGui::AlignTextToFramePadding();
+                            ImGui::TextUnformatted(name.c_str());
+                            ImGui::Dummy(ImVec2(row_w, 4.f));
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::EndChild();
+                    ImGui::PopStyleVar(2);
+                    ImGui::PopStyleColor();
                     custom::EndChild();
                 }
 
@@ -536,7 +741,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_MOUSEACTIVATE)
-        return MA_NOACTIVATE;
+        return g_menu_open ? MA_ACTIVATE : MA_NOACTIVATE;
 
     if (msg == WM_NCHITTEST) {
         if (!g_menu_open)

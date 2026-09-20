@@ -1,4 +1,7 @@
+#pragma once
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "../examples/example_win32_directx11/font_defines.h"
 #include <string>
 // https://discord.authguards.com/
@@ -24,6 +27,7 @@ namespace font
 	inline ImFont* s_inter_semibold = nullptr;
 	inline ImFont* inter_medium = nullptr;
 	inline ImFont* icon_notify = nullptr;
+	inline ImFont* weapon_icons = nullptr;
 }
 
 namespace utils
@@ -82,7 +86,7 @@ inline namespace c
 	inline namespace bg
 	{
 		inline ImVec4 background = rgba(14, 15, 18, 0.58);
-		inline ImVec2 size = ImVec2(780, 540);
+		inline ImVec2 size = ImVec2(860, 640);
 		inline float rounding = 18.f;
 	}
 

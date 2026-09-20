@@ -26,6 +26,10 @@ struct Player {
     float distance = 0.f;
     float speed = 0.f;
     bool ducked = false;
+    std::string name;
+    std::string weapon_class;
+    uint16_t weapon_def_index = 0;
+    std::string weapon_icon_utf8;
 
     bool has_joint(Skel j) const
     {
@@ -48,6 +52,15 @@ public:
     const std::string& local_name() const { return local_name_; }
     int local_ping() const { return local_ping_; }
     int fps() const { return fps_; }
+    const Vec3& view_angles() const { return view_angles_; }
+    const Vec3& punch_angles() const { return punch_angles_; }
+    float sensitivity() const { return sensitivity_; }
+    float flash_alpha() const { return flash_alpha_; }
+    int shots_fired() const { return shots_fired_; }
+    int weapon_def() const { return weapon_def_; }
+    int camera_fov() const { return camera_fov_; }
+    bool scoped() const { return scoped_; }
+    bool local_alive() const { return local_alive_; }
 
 private:
     uintptr_t entity_by_index(int index) const;
@@ -69,6 +82,15 @@ private:
     std::string local_name_;
     int local_ping_ = 0;
     int fps_ = 0;
+    Vec3 view_angles_{};
+    Vec3 punch_angles_{};
+    float sensitivity_ = 1.f;
+    float flash_alpha_ = 0.f;
+    int shots_fired_ = 0;
+    int weapon_def_ = 0;
+    int camera_fov_ = 90;
+    bool scoped_ = false;
+    bool local_alive_ = false;
     float fps_smooth_ = 0.f;
     int fps_last_frames_ = 0;
     DWORD fps_last_ms_ = 0;

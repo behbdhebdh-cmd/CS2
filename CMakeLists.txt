@@ -4,15 +4,20 @@ project(CS2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+add_compile_definitions(IMGUI_DEFINE_MATH_OPERATORS)
+
 set(LIAN "${CMAKE_SOURCE_DIR}/vendor/imgui-lianflow")
 
 add_executable(CS2 WIN32
     src/app/main.cpp
+    src/app/config.cpp
     src/sdk/memory.cpp
     src/sdk/game.cpp
     src/sdk/vis.cpp
     src/sdk/offset_update.cpp
     src/features/esp.cpp
+    src/features/combat.cpp
+    src/features/weapon_icons.cpp
     "${LIAN}/imgui.cpp"
     "${LIAN}/imgui_draw.cpp"
     "${LIAN}/imgui_tables.cpp"

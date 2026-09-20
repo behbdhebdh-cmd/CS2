@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "features/esp.hpp"
 #include "app/settings.hpp"
 #include "sdk/skel_log.hpp"
@@ -5,6 +6,7 @@
 #include "sdk/vis.hpp"
 
 #include "imgui.h"
+#include "imgui_settings.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -272,16 +274,30 @@ void draw_corner_box(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImVec4 col, float bea
 
 void draw_filled_box(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImVec4 col, float alpha)
 {
-    ImVec4 top = col;
-    ImVec4 bot = col;
-    top.w = 0.035f * alpha;
-    bot.w = 0.11f * alpha;
-    bot.x *= 0.75f;
-    bot.y *= 0.75f;
-    bot.z *= 0.80f;
-    dl->AddRectFilledMultiColor(mn, mx,
-        ImGui::ColorConvertFloat4ToU32(top), ImGui::ColorConvertFloat4ToU32(top),
-        ImGui::ColorConvertFloat4ToU32(bot), ImGui::ColorConvertFloat4ToU32(bot));
+    const float w = mx.x - mn.x;
+    const float h = mx.y - mn.y;
+    if (w < 4.f || h < 8.f || alpha <= 0.01f)
+        return;
+
+    const float round = std::clamp(std::min(w, h) * 0.22f, 8.f, 22.f);
+    const float a = std::clamp(alpha, 0.f, 1.f);
+    ImVec4 wash = col;
+    wash.w = 0.11f * a;
+    ImVec4 bloom = col;
+    bloom.w = 0.16f * a;
+
+    dl->AddShadowRect(mn, mx, ImGui::ColorConvertFloat4ToU32(bloom), 18.f,
+                      ImVec2(0, 0), ImDrawFlags_ShadowCutOutShapeBackground, round);
+    dl->AddRectFilled(mn, mx, ImGui::ColorConvertFloat4ToU32(wash), round);
+
+    ImVec4 heel = col;
+    heel.x *= 0.85f;
+    heel.y *= 0.85f;
+    heel.z *= 0.88f;
+    heel.w = 0.08f * a;
+    const float split = mn.y + h * 0.42f;
+    dl->AddRectFilled(ImVec2(mn.x, split), mx, ImGui::ColorConvertFloat4ToU32(heel), round,
+                      ImDrawFlags_RoundCornersBottom);
 }
 
 void draw_3d_box(ImDrawList* dl, ImVec2 c[8], ImVec4 col, float thickness, float glow, float alpha)
@@ -475,6 +491,46 @@ void draw_distance_label(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, float d
     dl->AddText(ImVec2(x, y), label, text);
 }
 
+void draw_player_name(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, const std::string& name, float alpha)
+{
+    if (name.empty() || alpha <= 0.01f)
+        return;
+
+    const ImVec2 size = ImGui::CalcTextSize(name.c_str());
+    const float x = (box_min.x + box_max.x - size.x) * 0.5f;
+    const float y = box_min.y - size.y - 3.f;
+    if (y < -size.y)
+        return;
+
+    const ImU32 shadow = IM_COL32(3, 5, 8, static_cast<int>(180.f * alpha));
+    const ImU32 label = IM_COL32(235, 240, 246, static_cast<int>(230.f * alpha));
+    dl->AddText(ImVec2(x + 1.f, y + 1.f), shadow, name.c_str());
+    dl->AddText(ImVec2(x, y), label, name.c_str());
+}
+
+void draw_weapon_icon(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, const std::string& icon_utf8, float alpha)
+{
+    if (!g_menu.vis_weapon_icon || icon_utf8.empty() || !font::weapon_icons || alpha <= 0.01f)
+        return;
+
+    const float icon_size = static_cast<float>(std::clamp(g_menu.vis_weapon_icon_size, 10, 36));
+    const ImVec2 size = font::weapon_icons->CalcTextSizeA(icon_size, FLT_MAX, 0.0f, icon_utf8.c_str());
+
+    const float x = (box_min.x + box_max.x - size.x) * 0.5f;
+    float y_below = box_max.y + 3.f;
+    if (g_menu.vis_distance)
+        y_below += 14.f;
+
+    const float y = (y_below + size.y <= ImGui::GetIO().DisplaySize.y) ? y_below : (box_min.y - size.y - 4.f);
+
+    const ImVec4 col = from_arr(g_menu.weapon_icon_color);
+    const ImU32 label = with_a(col, col.w * alpha);
+    const ImU32 shadow = IM_COL32(2, 4, 6, static_cast<int>(180.f * alpha * col.w));
+
+    dl->AddText(font::weapon_icons, icon_size, ImVec2(x + 1.f, y + 1.f), shadow, icon_utf8.c_str());
+    dl->AddText(font::weapon_icons, icon_size, ImVec2(x, y), label, icon_utf8.c_str());
+}
+
 } // namespace
 
 void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float screen_w, float screen_h, float time_s)
@@ -528,18 +584,24 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
 
         if (style == BoxStyle::Filled)
             draw_filled_box(dl, mn, mx, col, alpha);
+        else if (style == BoxStyle::Box3D && n == 8)
+            draw_3d_box(dl, corners, col, line_t, glow, alpha);
+        else if (style == BoxStyle::Corner)
+            draw_corner_box(dl, mn, mx, col, beam, glow, corner_pct, alpha);
+
+        if (!p.name.empty())
+            draw_player_name(dl, mn, mx, p.name, alpha);
 
         draw_skeleton(dl, p, game.view_matrix(), screen_w, screen_h, skeleton_col, alpha);
-
-        if (style == BoxStyle::Box3D && n == 8)
-            draw_3d_box(dl, corners, col, line_t, glow, alpha);
-        else
-            draw_corner_box(dl, mn, mx, col, beam, glow, corner_pct, alpha);
 
         if (g_menu.vis_health)
             draw_health_bar(dl, mn, mx, hp, alpha, time_s);
 
-        draw_distance_label(dl, mn, mx, distance_m, alpha);
+        if (g_menu.vis_distance)
+            draw_distance_label(dl, mn, mx, distance_m, alpha);
+
+        if (g_menu.vis_weapon_icon && !p.weapon_icon_utf8.empty())
+            draw_weapon_icon(dl, mn, mx, p.weapon_icon_utf8, alpha);
 
         if (g_menu.vis_head) {
             const Vec3 head_anchor = p.eye + (p.head - p.eye) * 0.45f;

@@ -100,8 +100,47 @@ namespace schema {
     }
 
     namespace C_BasePlayerPawn {
-        inline std::ptrdiff_t m_vOldOrigin  = 0x13B8;
-        inline std::ptrdiff_t m_hController = 0x13D0;
+        inline std::ptrdiff_t m_pWeaponServices = 0x1208;
+        inline std::ptrdiff_t m_pCameraServices = 0x1240;
+        inline std::ptrdiff_t m_vOldOrigin      = 0x13B8;
+        inline std::ptrdiff_t m_hController     = 0x13D0;
+    }
+
+    namespace C_CSPlayerPawnBase {
+        inline std::ptrdiff_t m_flFlashOverlayAlpha = 0x141C;
+        inline std::ptrdiff_t m_flFlashMaxAlpha     = 0x1424;
+        inline std::ptrdiff_t m_flFlashDuration     = 0x1428;
+    }
+
+    namespace C_CSPlayerPawn {
+        inline std::ptrdiff_t m_pAimPunchServices = 0x14B8;
+        inline std::ptrdiff_t m_bIsScoped         = 0x1C78;
+        inline std::ptrdiff_t m_iShotsFired       = 0x1C8C;
+    }
+
+    namespace CCSPlayer_AimPunchServices {
+        inline std::ptrdiff_t m_predictableBaseAngle     = 0x50;
+        inline std::ptrdiff_t m_unpredictableBaseAngle   = 0xA4;
+    }
+
+    namespace CPlayer_WeaponServices {
+        inline std::ptrdiff_t m_hActiveWeapon = 0x60;
+    }
+
+    namespace CCSPlayerBase_CameraServices {
+        inline std::ptrdiff_t m_iFOV = 0x290;
+    }
+
+    namespace C_EconEntity {
+        inline std::ptrdiff_t m_AttributeManager = 0x11A8;
+    }
+
+    namespace C_AttributeContainer {
+        inline std::ptrdiff_t m_Item = 0x50;
+    }
+
+    namespace C_EconItemView {
+        inline std::ptrdiff_t m_iItemDefinitionIndex = 0x1BA;
     }
 
     namespace CBasePlayerController {

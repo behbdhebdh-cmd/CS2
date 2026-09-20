@@ -555,8 +555,42 @@ void OffsetUpdate::apply_flat(const std::unordered_map<std::string, std::ptrdiff
     n += apply_one(flat, offsets::schema::CCollisionProperty::m_vecMins, { "ccollisionproperty.m_vecmins", "m_vecmins" });
     n += apply_one(flat, offsets::schema::CCollisionProperty::m_vecMaxs, { "ccollisionproperty.m_vecmaxs", "m_vecmaxs" });
 
+    n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_pWeaponServices,
+                   { "c_baseplayerpawn.m_pweaponservices", "m_pweaponservices" });
+    n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_pCameraServices,
+                   { "c_baseplayerpawn.m_pcameraservices", "m_pcameraservices" });
     n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_vOldOrigin, { "c_baseplayerpawn.m_voldorigin", "m_voldorigin" });
     n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_hController, { "c_baseplayerpawn.m_hcontroller", "m_hcontroller" });
+
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawnBase::m_flFlashOverlayAlpha,
+                   { "c_csplayerpawnbase.m_flflashoverlayalpha", "m_flflashoverlayalpha" });
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawnBase::m_flFlashMaxAlpha,
+                   { "c_csplayerpawnbase.m_flflashmaxalpha", "m_flflashmaxalpha" });
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawnBase::m_flFlashDuration,
+                   { "c_csplayerpawnbase.m_flflashduration", "m_flflashduration" });
+
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawn::m_pAimPunchServices,
+                   { "c_csplayerpawn.m_paimpunchservices", "m_paimpunchservices" });
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawn::m_bIsScoped,
+                   { "c_csplayerpawn.m_bisscoped", "m_bisscoped" });
+    n += apply_one(flat, offsets::schema::C_CSPlayerPawn::m_iShotsFired,
+                   { "c_csplayerpawn.m_ishotsfired", "m_ishotsfired" });
+
+    n += apply_one(flat, offsets::schema::CCSPlayer_AimPunchServices::m_predictableBaseAngle,
+                   { "ccsplayer_aimpunchservices.m_predictablebaseangle", "m_predictablebaseangle" });
+    n += apply_one(flat, offsets::schema::CCSPlayer_AimPunchServices::m_unpredictableBaseAngle,
+                   { "ccsplayer_aimpunchservices.m_unpredictablebaseangle", "m_unpredictablebaseangle" });
+
+    n += apply_one(flat, offsets::schema::CPlayer_WeaponServices::m_hActiveWeapon,
+                   { "cplayer_weaponservices.m_hactiveweapon", "m_hactiveweapon" });
+    n += apply_one(flat, offsets::schema::CCSPlayerBase_CameraServices::m_iFOV,
+                   { "ccsplayerbase_cameraservices.m_ifov", "m_ifov" });
+    n += apply_one(flat, offsets::schema::C_EconEntity::m_AttributeManager,
+                   { "c_econentity.m_attributemanager", "m_attributemanager" });
+    n += apply_one(flat, offsets::schema::C_AttributeContainer::m_Item,
+                   { "c_attributecontainer.m_item" });
+    n += apply_one(flat, offsets::schema::C_EconItemView::m_iItemDefinitionIndex,
+                   { "c_econitemview.m_iitemdefinitionindex", "m_iitemdefinitionindex" });
 
     n += apply_one(flat, offsets::schema::CBasePlayerController::m_hPawn, { "cbaseplayercontroller.m_hpawn", "m_hpawn" });
     n += apply_one(flat, offsets::schema::CBasePlayerController::m_iszPlayerName, { "cbaseplayercontroller.m_iszplayername", "m_iszplayername" });

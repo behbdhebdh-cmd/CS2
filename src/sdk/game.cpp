@@ -3,6 +3,7 @@
 #include "sdk/skel_log.hpp"
 #include "sdk/skeleton.hpp"
 #include "sdk/vis.hpp"
+#include "features/weapon_icons.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -139,6 +140,15 @@ bool Game::tick(bool read_bones)
             fps_ = 0;
             fps_smooth_ = 0.f;
             local_ping_ = 0;
+            view_angles_ = {};
+            punch_angles_ = {};
+            sensitivity_ = 1.f;
+            flash_alpha_ = 0.f;
+            shots_fired_ = 0;
+            weapon_def_ = 0;
+            camera_fov_ = 90;
+            scoped_ = false;
+            local_alive_ = false;
             if (read_bones)
                 skel_log::write("tick: cs2.exe not attached");
             return false;
@@ -236,6 +246,63 @@ bool Game::tick(bool read_bones)
         else
             local_head_ = local_origin_ + Vec3{ 0.f, 0.f, ducked ? 46.f : 64.f };
 
+        local_alive_ = (mem_.read<int>(local_pawn + offsets::schema::C_BaseEntity::m_iHealth) > 0)
+            && (mem_.read<uint8_t>(local_pawn + offsets::schema::C_BaseEntity::m_lifeState) == offsets::life::kAlive);
+        scoped_ = mem_.read<bool>(local_pawn + offsets::schema::C_CSPlayerPawn::m_bIsScoped);
+        shots_fired_ = mem_.read<int>(local_pawn + offsets::schema::C_CSPlayerPawn::m_iShotsFired);
+        flash_alpha_ = mem_.read<float>(local_pawn + offsets::schema::C_CSPlayerPawnBase::m_flFlashOverlayAlpha);
+        if (!std::isfinite(flash_alpha_) || flash_alpha_ < 0.f)
+            flash_alpha_ = 0.f;
+
+        view_angles_ = mem_.read<Vec3>(client_ + offsets::client::dwViewAngles);
+        if (!std::isfinite(view_angles_.x) || !std::isfinite(view_angles_.y) || std::fabs(view_angles_.x) > 89.5f) {
+            const uintptr_t ang_ptr = mem_.read<uintptr_t>(client_ + offsets::client::dwViewAngles);
+            if (ang_ptr)
+                view_angles_ = mem_.read<Vec3>(ang_ptr);
+        }
+        if (!std::isfinite(view_angles_.x) || !std::isfinite(view_angles_.y))
+            view_angles_ = {};
+        normalize_angles(view_angles_);
+
+        punch_angles_ = {};
+        const uintptr_t punch_svc = mem_.read<uintptr_t>(local_pawn + offsets::schema::C_CSPlayerPawn::m_pAimPunchServices);
+        if (punch_svc) {
+            Vec3 punch = mem_.read<Vec3>(punch_svc + offsets::schema::CCSPlayer_AimPunchServices::m_unpredictableBaseAngle);
+            if (!std::isfinite(punch.x) || !std::isfinite(punch.y))
+                punch = mem_.read<Vec3>(punch_svc + offsets::schema::CCSPlayer_AimPunchServices::m_predictableBaseAngle);
+            if (std::isfinite(punch.x) && std::isfinite(punch.y))
+                punch_angles_ = punch;
+        }
+
+        sensitivity_ = 1.f;
+        const uintptr_t sens_obj = mem_.read<uintptr_t>(client_ + offsets::client::dwSensitivity);
+        if (sens_obj) {
+            const float s = mem_.read<float>(sens_obj + offsets::client::dwSensitivity_sensitivity);
+            if (std::isfinite(s) && s > 0.01f && s < 20.f)
+                sensitivity_ = s;
+        }
+
+        camera_fov_ = 90;
+        const uintptr_t cam = mem_.read<uintptr_t>(local_pawn + offsets::schema::C_BasePlayerPawn::m_pCameraServices);
+        if (cam) {
+            const uint32_t fov = mem_.read<uint32_t>(cam + offsets::schema::CCSPlayerBase_CameraServices::m_iFOV);
+            if (fov > 0 && fov < 150)
+                camera_fov_ = static_cast<int>(fov);
+        }
+
+        weapon_def_ = 0;
+        const uintptr_t weap_svc = mem_.read<uintptr_t>(local_pawn + offsets::schema::C_BasePlayerPawn::m_pWeaponServices);
+        if (weap_svc) {
+            const uint32_t handle = mem_.read<uint32_t>(weap_svc + offsets::schema::CPlayer_WeaponServices::m_hActiveWeapon);
+            const uintptr_t weap = pawn_from_handle(handle);
+            if (weap) {
+                const uintptr_t item = weap
+                    + offsets::schema::C_EconEntity::m_AttributeManager
+                    + offsets::schema::C_AttributeContainer::m_Item;
+                weapon_def_ = static_cast<int>(mem_.read<uint16_t>(item + offsets::schema::C_EconItemView::m_iItemDefinitionIndex));
+            }
+        }
+
         if (read_bones && node) {
             static bool logged_local = false;
             if (!logged_local) {
@@ -277,6 +344,15 @@ bool Game::tick(bool read_bones)
                 }
             }
         }
+    } else {
+        view_angles_ = {};
+        punch_angles_ = {};
+        flash_alpha_ = 0.f;
+        shots_fired_ = 0;
+        weapon_def_ = 0;
+        camera_fov_ = 90;
+        scoped_ = false;
+        local_alive_ = false;
     }
 
     for (int i = 1; i <= 64; ++i) {
@@ -344,6 +420,44 @@ bool Game::tick(bool read_bones)
         };
 
         p.distance = p.origin.dist(local_origin_);
+
+        char raw_name[128]{};
+        mem_.read_raw(controller + offsets::schema::CBasePlayerController::m_iszPlayerName, raw_name, sizeof(raw_name) - 1);
+        p.name = raw_name;
+        if (p.name.empty()) {
+            const uintptr_t sp = mem_.read<uintptr_t>(controller + offsets::schema::CCSPlayerController::m_sSanitizedPlayerName);
+            if (sp) {
+                char buf[64]{};
+                mem_.read_raw(sp, buf, sizeof(buf) - 1);
+                p.name = buf;
+            }
+        }
+
+        const uintptr_t weapon_services = mem_.read<uintptr_t>(pawn + offsets::schema::C_BasePlayerPawn::m_pWeaponServices);
+        if (weapon_services) {
+            const uint32_t active_handle = mem_.read<uint32_t>(weapon_services + offsets::schema::CPlayer_WeaponServices::m_hActiveWeapon);
+            const uintptr_t active_weapon = pawn_from_handle(active_handle);
+            if (active_weapon) {
+                const uintptr_t econ_item = mem_.read<uintptr_t>(
+                    active_weapon + offsets::schema::C_EconEntity::m_AttributeManager
+                                  + offsets::schema::C_AttributeContainer::m_Item);
+                if (econ_item) {
+                    p.weapon_def_index = mem_.read<uint16_t>(econ_item + offsets::schema::C_EconItemView::m_iItemDefinitionIndex);
+                }
+                const uintptr_t identity = mem_.read<uintptr_t>(active_weapon + 0x10);
+                if (identity) {
+                    const uintptr_t name_ptr = mem_.read<uintptr_t>(identity + 0x20);
+                    if (name_ptr >= 0x10000) {
+                        char designer_buf[64]{};
+                        if (mem_.read_raw(name_ptr, designer_buf, sizeof(designer_buf) - 1)) {
+                            p.weapon_class = designer_buf;
+                        }
+                    }
+                }
+                p.weapon_icon_utf8 = weapon_icons::resolve(p.weapon_class, p.weapon_def_index);
+            }
+        }
+
         if (p.team < 2 || p.team > 3)
             continue;
 

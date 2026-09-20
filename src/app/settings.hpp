@@ -29,11 +29,54 @@ enum class SkeletonStyle {
     LinesAndPoints = 2,
 };
 
+enum class AimBone {
+    Head = 0,
+    Neck = 1,
+    Chest = 2,
+    UpperChest = 3,
+    HeadThenChest = 4,
+    Priority = 5,
+};
+
+enum class TriggerHitbox {
+    Head = 0,
+    Chest = 1,
+    Body = 2,
+};
+
+struct CombatProfile {
+    float fov = 3.5f;
+    float smooth = 0.65f;
+    int bone = static_cast<int>(AimBone::Head);
+    float rcs_yaw = 2.f;
+    float rcs_pitch = 2.f;
+};
+
 struct MenuState {
     bool aim_enable = false;
     bool aim_visible = true;
     bool aim_recoil = false;
+    bool aim_fov_draw = true;
+    bool aim_humanize = true;
+    bool aim_team_check = true;
+    int  aim_key = 0x12; // VK_MENU
+    int  aim_key_mode = 0;
+    int  aim_edit_profile = 0; // 0 rifle, 1 pistol, 2 sniper
+    CombatProfile aim_rifle{ 3.5f, 0.65f, static_cast<int>(AimBone::Head), 2.f, 2.f };
+    CombatProfile aim_pistol{ 2.4f, 0.45f, static_cast<int>(AimBone::Head), 1.2f, 1.2f };
+    CombatProfile aim_sniper{ 2.0f, 0.22f, static_cast<int>(AimBone::Head), 0.f, 0.f };
+    float aim_reaction_min = 70.f;
+    float aim_reaction_max = 150.f;
+    float aim_noise = 0.18f;
+    float aim_overshoot = 0.12f;
+    float aim_miss = 0.03f;
+
     bool trigger_enable = false;
+    bool trigger_visible = true;
+    bool trigger_team_check = true;
+    bool trigger_scope = true;
+    bool trigger_flash = true;
+    bool trigger_weapon_filter = true;
 
     bool vis_enable = true;
     bool vis_health = true;
@@ -51,6 +94,8 @@ struct MenuState {
     bool vis_team_check = true;
     bool vis_visible_only = true;
     bool vis_distance = true;
+    bool vis_weapon_icon = true;
+    int  vis_weapon_icon_size = 18;
     int  vis_box_style = static_cast<int>(BoxStyle::Corner);
     int  vis_thickness = 11;     // 0.1 px units
     int  vis_glow = 28;
@@ -59,15 +104,12 @@ struct MenuState {
 
     bool misc_watermark = true;
 
-    int aim_fov = 8;
-    int aim_smooth = 12;
-    int aim_bone = 0;
-    int trigger_delay_ms = 20;
-
-    int aim_key = 0;
-    int aim_key_mode = 1;
-    int trigger_key = 0;
-    int trigger_key_mode = 1;
+    int trigger_hitbox = static_cast<int>(TriggerHitbox::Head);
+    int trigger_first_ms = 70;
+    int trigger_next_ms = 155;
+    int trigger_jitter_ms = 18;
+    int trigger_key = 0x12; // VK_MENU
+    int trigger_key_mode = 0;
     int menu_key = 0;
     int menu_key_mode = 0;
 
@@ -80,6 +122,7 @@ struct MenuState {
     float head_team[4]   = { 0.55f, 0.78f, 0.92f, 0.82f };
     float skeleton_visible[4] = { 0.48f, 0.90f, 0.72f, 0.94f };
     float skeleton_hidden[4]  = { 0.94f, 0.43f, 0.46f, 0.78f };
+    float weapon_icon_color[4] = { 0.95f, 0.95f, 0.98f, 0.95f };
 };
 
 inline MenuState g_menu;
@@ -87,8 +130,8 @@ inline bool g_menu_open = false;
 inline bool g_want_quit = false;
 inline float g_menu_x = 80.f;
 inline float g_menu_y = 80.f;
-inline float g_menu_w = 780.f;
-inline float g_menu_h = 540.f;
+inline float g_menu_w = 860.f;
+inline float g_menu_h = 640.f;
 
 struct HitRect { float x, y, w, h; };
 inline HitRect g_hits[24]{};
