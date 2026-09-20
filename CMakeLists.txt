@@ -11,6 +11,7 @@ add_executable(CS2 WIN32
     src/sdk/memory.cpp
     src/sdk/game.cpp
     src/sdk/vis.cpp
+    src/sdk/offset_update.cpp
     src/features/esp.cpp
     "${LIAN}/imgui.cpp"
     "${LIAN}/imgui_draw.cpp"
@@ -45,6 +46,7 @@ target_link_libraries(CS2 PRIVATE
     d3dx11
     winmm
     dwmapi
+    winhttp
 )
 
 target_compile_definitions(CS2 PRIVATE

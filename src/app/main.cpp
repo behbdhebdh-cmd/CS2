@@ -5,8 +5,12 @@
 #include "sdk/game.hpp"
 #include "sdk/offsets.hpp"
 #include "sdk/vis.hpp"
+#include "sdk/offset_update.hpp"
 #include "imgui_internal.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <d3d11.h>
 #include <dwmapi.h>
 #include <tchar.h>
@@ -22,8 +26,48 @@
 
 static Game g_game;
 static VisCheck g_vis;
-static float g_menu_alpha = 1.f;
+static float g_menu_alpha = 0.f;
+static float g_menu_anim = 0.f;
 static HWND g_found_game = nullptr;
+
+static float smootherstep(float t)
+{
+    t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+    return t * t * t * (t * (t * 6.f - 15.f) + 10.f);
+}
+
+static void scale_draw_list(ImDrawList* dl, ImVec2 pivot, float scale)
+{
+    if (!dl || std::fabs(scale - 1.f) < 0.0008f)
+        return;
+    for (int i = 0; i < dl->VtxBuffer.Size; ++i) {
+        ImDrawVert& v = dl->VtxBuffer[i];
+        v.pos.x = pivot.x + (v.pos.x - pivot.x) * scale;
+        v.pos.y = pivot.y + (v.pos.y - pivot.y) * scale;
+    }
+    for (int i = 0; i < dl->CmdBuffer.Size; ++i) {
+        ImVec4& cr = dl->CmdBuffer[i].ClipRect;
+        cr.x = pivot.x + (cr.x - pivot.x) * scale;
+        cr.y = pivot.y + (cr.y - pivot.y) * scale;
+        cr.z = pivot.x + (cr.z - pivot.x) * scale;
+        cr.w = pivot.y + (cr.w - pivot.y) * scale;
+    }
+}
+
+static void scale_menu_windows(const char* root, ImVec2 pivot, float scale)
+{
+    if (!root || std::fabs(scale - 1.f) < 0.0008f)
+        return;
+    ImGuiContext& g = *GImGui;
+    for (ImGuiWindow* w : g.Windows) {
+        if (!w || w->Hidden)
+            continue;
+        ImGuiWindow* r = w->RootWindow ? w->RootWindow : w;
+        if (!r || !r->Name || std::strcmp(r->Name, root) != 0)
+            continue;
+        scale_draw_list(w->DrawList, pivot, scale);
+    }
+}
 
 static bool key_edge(int vk)
 {
@@ -37,6 +81,8 @@ static bool key_edge(int vk)
 
 static const char* kBones[] = { "Head", "Neck", "Chest", "Pelvis" };
 static const char* kBoxStyle[] = { "Corner Box", "3D Box", "Filled Box" };
+static const char* kHealthPosition[] = { "Left", "Right" };
+static const char* kHeadStyle[] = { "Circle", "Dot", "Box" };
 
 static BOOL CALLBACK find_cs2_cb(HWND hwnd, LPARAM)
 {
@@ -173,6 +219,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     c_tabs p_tabs(tabs_info);
     CNotifications p_notif;
     g_vis.set_search_dir("D:\\CS2\\maps");
+    OffsetUpdate::instance().start();
 
     bool done = false;
     DWORD last_window_sync = 0;
@@ -207,6 +254,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         }
 
         g_game.tick();
+        OffsetUpdate::instance().tick();
         if (g_game.attached())
             g_vis.tick(g_game.map_name());
 
@@ -236,27 +284,44 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
         c::anim::speed = ImGui::GetIO().DeltaTime * 12.f;
         c::second_color = utils::GetDarkColor(c::main_color);
-        g_menu_alpha = g_menu_open ? 1.f : 0.f;
-        s.Alpha = g_menu_alpha;
 
-        if (g_menu_open) {
-            ImGui::SetNextWindowPos(ImVec2((ow - c::bg::size.x) * 0.5f, (oh - c::bg::size.y) * 0.5f), ImGuiCond_Once);
+        const float dt = (std::min)(ImGui::GetIO().DeltaTime, 0.05f);
+        const float open_spd = 1.f / 0.36f;
+        const float close_spd = 1.f / 0.24f;
+        if (g_menu_open)
+            g_menu_anim = (std::min)(1.f, g_menu_anim + dt * open_spd);
+        else
+            g_menu_anim = (std::max)(0.f, g_menu_anim - dt * close_spd);
+
+        const float ease = smootherstep(g_menu_anim);
+        g_menu_alpha = ease;
+        s.Alpha = ease;
+        s.WindowShadowSize = 8.f + 20.f * ease;
+
+        if (g_menu_anim > 0.001f) {
+            const float scale = 0.965f + 0.035f * ease;
+            const float y_off = (1.f - ease) * 16.f;
+            const ImVec2 rest((ow - c::bg::size.x) * 0.5f, (oh - c::bg::size.y) * 0.5f);
+            const ImVec2 pos(rest.x, rest.y + y_off);
+            const ImVec2 pivot(pos.x + c::bg::size.x * 0.5f, pos.y + c::bg::size.y * 0.5f);
+
+            ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
             ImGui::SetNextWindowSize(c::bg::size);
-            Begin("CS2", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground);
+            Begin("CS2", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
             {
-                const ImVec2& pos = ImGui::GetWindowPos();
+                ImDrawList* chrome = ImGui::GetWindowDrawList();
 
-                draw_background_blur(GetBackgroundDrawList(), g_pSwapChain, g_pd3dDevice, g_pd3dDeviceContext, pos, pos + c::bg::size, c::bg::rounding);
-                GetBackgroundDrawList()->AddRectFilled(pos, pos + c::bg::size, utils::GetColorWithAlpha(c::window_bg_color, c::window_bg_color.Value.w * s.Alpha), c::bg::rounding);
-                GetBackgroundDrawList()->AddRect(pos, pos + c::bg::size, IM_COL32(230, 236, 242, (int)(42 * s.Alpha)), c::bg::rounding, 0, 1.f);
+                draw_background_blur(chrome, g_pSwapChain, g_pd3dDevice, g_pd3dDeviceContext, pos, pos + c::bg::size, c::bg::rounding);
+                chrome->AddRectFilled(pos, pos + c::bg::size, utils::GetColorWithAlpha(c::window_bg_color, c::window_bg_color.Value.w * s.Alpha), c::bg::rounding);
+                chrome->AddRect(pos, pos + c::bg::size, IM_COL32(230, 236, 242, (int)(42 * s.Alpha)), c::bg::rounding, 0, 1.f);
 
-                GetBackgroundDrawList()->AddText(pos + ImVec2(18, c::bg::size.y - 32), c::label::default, "INSERT / F7  hide   ·   ESC  close   ·   F8  unload");
+                chrome->AddText(pos + ImVec2(18, c::bg::size.y - 32), c::label::default, "INSERT / F7  hide   ·   ESC  close   ·   F8  unload");
 
-                GetBackgroundDrawList()->AddRectFilled(pos, pos + ImVec2(c::bg::size.x, 68), GetColorU32(c::child::background), c::bg::rounding, ImDrawFlags_RoundCornersTop);
+                chrome->AddRectFilled(pos, pos + ImVec2(c::bg::size.x, 68), GetColorU32(c::child::background), c::bg::rounding, ImDrawFlags_RoundCornersTop);
 
                 PushFont(font::bold_font);
-                GetBackgroundDrawList()->AddText(utils::center_text(pos, pos + ImVec2(70, 68), ICON_FIRE_FILL) + ImVec2(0, 4.5f), main_color, ICON_FIRE_FILL);
-                GetBackgroundDrawList()->AddText(ImVec2(pos.x + 60, utils::center_text(pos, pos + ImVec2(70, 68), "CS2").y), c::label::active, "CS2");
+                chrome->AddText(utils::center_text(pos, pos + ImVec2(70, 68), ICON_FIRE_FILL) + ImVec2(0, 4.5f), main_color, ICON_FIRE_FILL);
+                chrome->AddText(ImVec2(pos.x + 60, utils::center_text(pos, pos + ImVec2(70, 68), "CS2").y), c::label::active, "CS2");
                 PopFont();
 
                 ImGui::SetCursorScreenPos(pos + ImVec2(c::bg::size.x - 50.f, 18.f));
@@ -265,8 +330,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                 {
                     const bool hov = ImGui::IsItemHovered();
                     const ImVec2 x0 = pos + ImVec2(c::bg::size.x - 42.f, 22.f);
-                    GetBackgroundDrawList()->AddCircleFilled(x0 + ImVec2(9, 9), 13.f, IM_COL32(255, 255, 255, hov ? 28 : 12), 24);
-                    GetBackgroundDrawList()->AddText(x0 + ImVec2(3, -1), IM_COL32(230, 235, 240, hov ? 230 : 170), "x");
+                    chrome->AddCircleFilled(x0 + ImVec2(9, 9), 13.f, IM_COL32(255, 255, 255, hov ? 28 : 12), 24);
+                    chrome->AddText(x0 + ImVec2(3, -1), IM_COL32(230, 235, 240, hov ? 230 : 170), "x");
                 }
 
                 g_menu_x = pos.x;
@@ -286,18 +351,30 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::Checkbox("Enable", &g_menu.vis_enable);
                     custom::Combo("Style", &g_menu.vis_box_style, kBoxStyle, IM_ARRAYSIZE(kBoxStyle));
                     custom::Checkbox("Health bar", &g_menu.vis_health);
+                    custom::Combo("Health position", &g_menu.vis_health_position, kHealthPosition, IM_ARRAYSIZE(kHealthPosition));
+                    custom::SliderInt("Health width", &g_menu.vis_health_width, 2, 8);
+                    custom::Checkbox("Health gradient", &g_menu.vis_health_gradient);
+                    custom::Checkbox("Health value", &g_menu.vis_health_value);
+                    custom::Checkbox("Head marker", &g_menu.vis_head);
+                    custom::Combo("Head shape", &g_menu.vis_head_style, kHeadStyle, IM_ARRAYSIZE(kHeadStyle));
+                    custom::SliderInt("Head size", &g_menu.vis_head_size, 5, 20);
+                    custom::Checkbox("Distance", &g_menu.vis_distance);
                     custom::Checkbox("Enemies only", &g_menu.vis_team_check);
                     custom::Checkbox("Visible only", &g_menu.vis_visible_only);
                     custom::SliderInt("Thickness", &g_menu.vis_thickness, 8, 28);
                     custom::SliderInt("Glow", &g_menu.vis_glow, 10, 90);
                     custom::SliderInt("Corner length", &g_menu.vis_corner, 16, 42);
-                    custom::SliderInt("Max distance", &g_menu.vis_max_distance, 20, 400);
+                    custom::SliderInt("Max distance (m)", &g_menu.vis_max_distance, 20, 400);
                     custom::EndChild();
 
                     ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
                     custom::Child("Color##R", ImVec2(half_w, full_h), true);
                     custom::ColorEdit4("Enemy", g_menu.box_enemy, picker_flags);
                     custom::ColorEdit4("Team", g_menu.box_team, picker_flags);
+                    custom::ColorEdit4("Health low", g_menu.health_low, picker_flags);
+                    custom::ColorEdit4("Health high", g_menu.health_high, picker_flags);
+                    custom::ColorEdit4("Head enemy", g_menu.head_enemy, picker_flags);
+                    custom::ColorEdit4("Head team", g_menu.head_team, picker_flags);
                     custom::EndChild();
                 }
 
@@ -338,8 +415,13 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     ImGui::Dummy(ImVec2(0, 8));
                     ImGui::TextWrapped("INSERT or F7 toggles this panel. ESC hides it. F8 unloads the overlay.");
                     ImGui::Dummy(ImVec2(0, 8));
-                    ImGui::TextWrapped("Offsets: %s  (%s)", offsets::kDumpUtc, offsets::kDumpUpdate);
-                    ImGui::Dummy(ImVec2(0, 12));
+                    ImGui::TextWrapped("Offsets: %s  (%s)  [%s]", offsets::kDumpUtc, offsets::kDumpUpdate, offsets::kDumpSource);
+                    ImGui::Dummy(ImVec2(0, 4));
+                    ImGui::TextWrapped("%s", OffsetUpdate::instance().status().c_str());
+                    ImGui::Dummy(ImVec2(0, 8));
+                    if (custom::Button("Refresh offsets", ImVec2(ImGui::GetContentRegionAvail().x, 44)))
+                        OffsetUpdate::instance().request_poll();
+                    ImGui::Dummy(ImVec2(0, 8));
                     if (custom::Button("Unload overlay", ImVec2(ImGui::GetContentRegionAvail().x, 44)))
                         g_want_quit = true;
                     custom::EndChild();
@@ -348,6 +430,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                 p_notif.Render();
             }
             End();
+
+            scale_menu_windows("CS2", pivot, scale);
 
             g_menu_w = c::bg::size.x;
             g_menu_h = c::bg::size.y;
@@ -377,6 +461,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         g_pSwapChain->Present(0, 0);
     }
 
+    OffsetUpdate::instance().stop();
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

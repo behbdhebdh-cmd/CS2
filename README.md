@@ -2,22 +2,42 @@
 
 Private bot-match overlay for a personal CS2 HVH server.
 
-## Status (v2)
+## Status
 
 | Area | State |
 | --- | --- |
 | DX11 overlay | click-through when menu is closed |
 | LianFlow menu | Insert / F7 toggle, ESC hide, F8 unload |
-| ESP | Corner / 3D / Filled + glass health, no positional lag |
+| ESP | Corner / 3D / Filled + glass health |
 | Colors | RGB sliders in the Visuals panel |
 | Vis check | BVH raycast against `.tri` meshes in `maps/tri/` |
+| Offsets | Auto-poll from CheatOffsets API (ETag, 10 min) |
 | Aim / trigger | UI only, not wired |
 
 **Insert** opens the menu. While it is closed the overlay does not eat mouse or
 keyboard input. While it is open, only the panel itself is interactive; the rest
 of the game stays clickable.
 
-Generate meshes (once, locally — not in git):
+## Automatic offset updates
+
+Offsets are no longer a hand-pasted header you have to refresh after every CS2
+patch. On startup the overlay:
+
+1. Loads the last good dump from `config/offsets_cache.json` (if present).
+2. Polls `GET https://www.cheatoffsets.com/api/games/cs2/current`.
+3. Applies `offsets_flat` (name → hex) to the live offset table.
+4. Stores the response `ETag` and sends `If-None-Match` on the next poll.
+5. Repeats every **10 minutes**. HTTP **304** means “nothing changed” — the
+   current table stays as-is, no download.
+
+Baked values in `src/sdk/offsets.hpp` remain the offline fallback. Settings →
+Menu shows poll status and a **Refresh offsets** button.
+
+Module details: [`src/sdk/offset_update/README.md`](src/sdk/offset_update/README.md)
+
+## Map meshes
+
+Generate once, locally (not in git):
 
 ```bat
 cd cphys-extractor
@@ -26,18 +46,8 @@ dotnet run -c Release -- --official --tri --out D:\CS2\maps --nopause
 
 ## UI base: ImGui LianFlow
 
-The menu is **ImGui LianFlow** (`E:\ImGui-LianFlow.zip` unpacked into
-`vendor/imgui-lianflow`). Treat that kit as a **base**, not a finished product.
-
-Rules for continuing work:
-
-1. Keep the LianFlow widgets, fonts, blur, and tab chrome.
-2. **Remove unused buttons and pages.** The stock example shipped Fortnite-style
-   extras (chests, vehicles, floor loot), a Discord avatar loader, duplicate
-   aim pages, and an Exploits tab. Those are already stripped in `src/app/main.cpp`.
-3. Do not add a widget unless you will actually wire it.
-4. Branding, accent color, and tab names live in `src/app/main.cpp`.
-5. Toggle the menu with **Insert** / **F7**.
+The menu is **ImGui LianFlow** (`vendor/imgui-lianflow`). Treat that kit as a
+**base**, not a finished product.
 
 Current tabs:
 
@@ -51,12 +61,11 @@ Details: [`docs/UI.md`](docs/UI.md)
 
 ## Offsets
 
-Source of truth: **https://www.cheatoffsets.com/**  
-CS2 dump: **https://www.cheatoffsets.com/g/cs2**
+Source of truth: **https://www.cheatoffsets.com/api**  
+CS2 current dump: **https://www.cheatoffsets.com/api/games/cs2/current**  
+Human page: **https://www.cheatoffsets.com/g/cs2**
 
-Offsets move every CS2 patch. Copy a fresh dump into `src/sdk/offsets.hpp`
-before any runtime work. Snapshot + field meanings:
-[`docs/OFFSETS.md`](docs/OFFSETS.md)
+Field meanings: [`docs/OFFSETS.md`](docs/OFFSETS.md)
 
 ## Layout
 
@@ -64,18 +73,19 @@ before any runtime work. Snapshot + field meanings:
 CS2/
   README.md
   CMakeLists.txt
-  config/settings.json          placeholder
+  config/
+    settings.json
+    offsets_cache.json      written at runtime (ETag + offsets_flat)
   docs/
-    OFFSETS.md                  CheatOffsets reference
-    UI.md                       LianFlow trim rules
-    ARCHITECTURE.md             planned layers
-    BUILD.md                    compile notes
   scripts/build.bat
   src/
-    app/main.cpp                trimmed LianFlow window
-    sdk/offsets.hpp             dated snapshot + TODOs
-    features/                   empty — setup only
-  vendor/imgui-lianflow/        ImGui + LianFlow + FreeType + D3DX11
+    app/main.cpp
+    sdk/
+      offsets.hpp           baked fallback, mutated at runtime
+      offset_update.hpp/.cpp
+      offset_update/README.md
+    features/
+  vendor/imgui-lianflow/
 ```
 
 ## Build
@@ -86,14 +96,11 @@ Windows x64, Visual Studio 2022/18 with the C++ workload.
 scripts\build.bat
 ```
 
-Release binary lands in `build/Release/CS2.exe` (VS generator) or `build/CS2.exe`
-(Ninja). See [`docs/BUILD.md`](docs/BUILD.md).
+Release binary: `build/Release/CS2.exe`. Copy used by this machine:
+`D:\CS2\release\CS2.exe`. See [`docs/BUILD.md`](docs/BUILD.md).
 
 ## Scope
 
-This tree is an educational overlay sandbox for a private server where the host
-allows it. Do not use it on official matchmaking, Faceit, or any server that
-forbids overlays / game modification.
-
-Third-party UI: LianFlow / Dear ImGui. Detours from the original zip were **not**
-copied on purpose.
+Educational overlay sandbox for a private server where the host allows it.
+Do not use it on official matchmaking, Faceit, or any server that forbids
+overlays / game modification.

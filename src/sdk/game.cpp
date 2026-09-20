@@ -1,5 +1,6 @@
 #include "sdk/game.hpp"
 #include "sdk/offsets.hpp"
+#include "sdk/vis.hpp"
 
 #include <Windows.h>
 #include <algorithm>
@@ -55,7 +56,10 @@ void Game::detect_map()
         name[sizeof(name) - 1] = 0;
         if (!looks_like_map(name))
             return false;
-        map_name_ = name;
+        std::string cleaned = sanitize_map_name(name);
+        if (cleaned.empty())
+            return false;
+        map_name_ = std::move(cleaned);
         return true;
     };
 
@@ -93,6 +97,9 @@ bool Game::tick()
         if (!mem_.attach(L"cs2.exe")) {
             attached_ = false;
             client_ = engine_ = 0;
+            fps_ = 0;
+            fps_smooth_ = 0.f;
+            local_ping_ = 0;
             return false;
         }
         client_ = mem_.module_base(L"client.dll");
@@ -107,6 +114,34 @@ bool Game::tick()
     if (!mem_.read_raw(client_ + offsets::client::dwViewMatrix, &view_, sizeof(view_)))
         return false;
 
+    {
+        const uintptr_t gv = mem_.read<uintptr_t>(client_ + offsets::client::dwGlobalVars);
+        float instant = 0.f;
+        if (gv) {
+            const float abs_ft = mem_.read<float>(gv + offsets::globalvars::m_flAbsoluteFrameTime);
+            const int frames = mem_.read<int>(gv + offsets::globalvars::m_nFrameCount);
+            if (std::isfinite(abs_ft) && abs_ft > 0.0008f && abs_ft < 0.2f)
+                instant = 1.f / abs_ft;
+            if (fps_last_ms_ && frames > fps_last_frames_ && now > fps_last_ms_) {
+                const float dt = static_cast<float>(now - fps_last_ms_) * 0.001f;
+                if (dt >= 0.18f) {
+                    const float sampled = static_cast<float>(frames - fps_last_frames_) / dt;
+                    if (sampled > 5.f && sampled < 1000.f && instant < 1.f)
+                        instant = sampled;
+                    fps_last_frames_ = frames;
+                    fps_last_ms_ = now;
+                }
+            } else {
+                fps_last_frames_ = frames;
+                fps_last_ms_ = now;
+            }
+        }
+        if (instant > 1.f) {
+            fps_smooth_ = (fps_smooth_ < 1.f) ? instant : (fps_smooth_ * 0.82f + instant * 0.18f);
+            fps_ = static_cast<int>(fps_smooth_ + 0.5f);
+        }
+    }
+
     if (now - last_map_ms_ > 1500) {
         last_map_ms_ = now;
         detect_map();
@@ -116,6 +151,27 @@ bool Game::tick()
     const uintptr_t local_controller = mem_.read<uintptr_t>(client_ + offsets::client::dwLocalPlayerController);
     local_team_ = local_pawn ? static_cast<int>(mem_.read<uint8_t>(local_pawn + offsets::schema::C_BaseEntity::m_iTeamNum)) : 0;
 
+    if (local_controller) {
+        char raw[128]{};
+        mem_.read_raw(local_controller + offsets::schema::CBasePlayerController::m_iszPlayerName, raw, sizeof(raw) - 1);
+        raw[sizeof(raw) - 1] = 0;
+        std::string name = raw;
+        if (name.empty()) {
+            const uintptr_t sp = mem_.read<uintptr_t>(local_controller + offsets::schema::CCSPlayerController::m_sSanitizedPlayerName);
+            if (sp) {
+                char buf[64]{};
+                mem_.read_raw(sp, buf, sizeof(buf) - 1);
+                name = buf;
+            }
+        }
+        while (!name.empty() && static_cast<unsigned char>(name.back()) < 32)
+            name.pop_back();
+        if (!name.empty() && name[0] >= 32)
+            local_name_ = std::move(name);
+        const uint32_t ping = mem_.read<uint32_t>(local_controller + offsets::schema::CCSPlayerController::m_iPing);
+        local_ping_ = (ping > 0 && ping < 1000u) ? static_cast<int>(ping) : 0;
+    }
+
     if (local_pawn) {
         const uintptr_t node = mem_.read<uintptr_t>(local_pawn + offsets::schema::C_BaseEntity::m_pGameSceneNode);
         if (node)
@@ -124,7 +180,11 @@ bool Game::tick()
             local_origin_ = mem_.read<Vec3>(local_pawn + offsets::schema::C_BasePlayerPawn::m_vOldOrigin);
         const uint32_t lf = mem_.read<uint32_t>(local_pawn + offsets::schema::C_BaseEntity::m_fFlags);
         const bool ducked = (lf & offsets::flags::FL_DUCKING) != 0;
-        local_head_ = local_origin_ + Vec3{ 0.f, 0.f, ducked ? 46.f : 64.f };
+        const Vec3 view_off = mem_.read<Vec3>(local_pawn + offsets::schema::C_BaseModelEntity::m_vecViewOffset);
+        if (view_off.length() > 8.f && view_off.length() < 90.f)
+            local_head_ = local_origin_ + view_off;
+        else
+            local_head_ = local_origin_ + Vec3{ 0.f, 0.f, ducked ? 46.f : 64.f };
     }
 
     for (int i = 1; i <= 64; ++i) {
@@ -177,6 +237,7 @@ bool Game::tick()
         p.mins = { -hx, -hy, 0.f };
         p.maxs = { hx, hy, height };
         p.head = p.origin + Vec3{ 0.f, 0.f, height };
+        p.eye = p.origin + Vec3{ 0.f, 0.f, p.ducked ? 46.f : 64.f };
 
         const Vec3 o = p.origin;
         p.corners = {

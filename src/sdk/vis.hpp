@@ -4,8 +4,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
+
+std::string sanitize_map_name(const std::string& raw);
 
 class VisMesh {
 public:
@@ -42,17 +47,36 @@ private:
 
 class VisCheck {
 public:
+    VisCheck() = default;
+    ~VisCheck();
+
+    VisCheck(const VisCheck&) = delete;
+    VisCheck& operator=(const VisCheck&) = delete;
+
     void set_search_dir(const std::string& dir) { dir_ = dir; }
     void tick(const std::string& map_name);
-    bool ready() const { return mesh_.ready(); }
-    bool has_map() const { return !map_.empty() && map_ != "<none>"; }
-    const std::string& map() const { return map_; }
-    size_t triangles() const { return mesh_.triangle_count(); }
+    bool ready() const { return ready_.load(std::memory_order_acquire); }
+    bool loading() const { return loading_.load(std::memory_order_acquire); }
+    bool has_map() const;
+    std::string map() const;
+    std::string status() const;
+    size_t triangles() const;
     bool visible(const Vec3& from, const Vec3& to) const;
 
 private:
+    void join_worker();
+    void start_load(const std::string& key);
+    std::string resolve_tri_path(const std::string& key) const;
+
     std::string dir_;
     std::string map_;
-    std::string status_;
-    VisMesh mesh_;
+    std::string wanted_;
+    std::string status_{ "idle" };
+    std::string failed_key_;
+    std::shared_ptr<const VisMesh> live_;
+    std::thread worker_;
+    mutable std::mutex mu_;
+    std::atomic<bool> ready_{ false };
+    std::atomic<bool> loading_{ false };
+    std::atomic<uint64_t> gen_{ 0 };
 };

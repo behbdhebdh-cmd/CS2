@@ -1,7 +1,9 @@
 # CS2 offsets — CheatOffsets
 
-Runtime header: `src/sdk/offsets.hpp`  
-Current dump: **a2x/cs2-dumper 2026-09-10 12:36 UTC**, game update **14181**.
+Runtime header: `src/sdk/offsets.hpp` (baked fallback; live values come from the
+CheatOffsets poller — [`src/sdk/offset_update/README.md`](../src/sdk/offset_update/README.md)).
+
+Baked dump: **a2x/cs2-dumper 2026-09-10 12:36 UTC**, game update **14181**.
 
 Primary documentation for this project comes from:
 
@@ -14,12 +16,18 @@ dump down to the fields you actually paste into an offset header.
 
 ## How to refresh
 
+Automatic (preferred): the overlay polls
+`GET https://www.cheatoffsets.com/api/games/cs2/current` every 10 minutes with
+`If-None-Match`. A `304` keeps the current table. A `200` applies `offsets_flat`
+at runtime. Settings → Menu → **Refresh offsets** forces a poll.
+
+Manual fallback if the API is down:
+
 1. Open https://www.cheatoffsets.com/g/cs2
 2. Confirm the **pinned build number** and timestamp at the top of the page.
 3. Copy `client.dll`, `engine2.dll`, `buttons`, and the essential schemas.
-4. Paste into `src/sdk/offsets.hpp`.
-5. Write the build number + UTC time in a comment at the top of that file.
-6. Never assume yesterday's values still work.
+4. Paste into `src/sdk/offsets.hpp` (these are fallbacks only).
+5. Never assume yesterday's values still work.
 
 Optional mirrors if the site is down (still verify the build number):
 

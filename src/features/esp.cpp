@@ -4,9 +4,18 @@
 
 #include "imgui.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 namespace {
 
@@ -33,14 +42,14 @@ void clean_line(ImDrawList* dl, ImVec2 a, ImVec2 b, ImVec4 col, float thickness,
         dl->AddLine(a, b, ImGui::ColorConvertFloat4ToU32(g), thickness + glow);
     }
 
-    dl->AddLine(a, b, with_a(ImVec4(0.02f, 0.03f, 0.04f, 1.f), col.w * 0.55f), thickness + 0.9f);
+    dl->AddLine(a, b, with_a(ImVec4(0.02f, 0.03f, 0.04f, 1.f), col.w * 0.42f), thickness + 0.8f);
     dl->AddLine(a, b, ImGui::ColorConvertFloat4ToU32(col), thickness);
 
     ImVec4 hi = col;
     hi.x = std::min(hi.x * 1.18f + 0.10f, 1.f);
     hi.y = std::min(hi.y * 1.18f + 0.10f, 1.f);
     hi.z = std::min(hi.z * 1.18f + 0.10f, 1.f);
-    hi.w *= 0.70f;
+    hi.w *= 0.50f;
     dl->AddLine(a, b, ImGui::ColorConvertFloat4ToU32(hi), std::max(1.f, thickness * 0.38f));
 }
 
@@ -67,7 +76,7 @@ void frame_corner(ImDrawList* dl, ImVec2 c, float sx, float sy, float len, float
     fill.x *= 0.22f;
     fill.y *= 0.24f;
     fill.z *= 0.28f;
-    fill.w = 0.55f * alpha;
+    fill.w = 0.36f * alpha;
     dl->AddRectFilled(ha, hb, ImGui::ColorConvertFloat4ToU32(fill));
     dl->AddRectFilled(va, vb, ImGui::ColorConvertFloat4ToU32(fill));
 
@@ -75,13 +84,13 @@ void frame_corner(ImDrawList* dl, ImVec2 c, float sx, float sy, float len, float
     inner.x *= 0.42f;
     inner.y *= 0.44f;
     inner.z *= 0.48f;
-    inner.w = 0.70f * alpha;
+    inner.w = 0.46f * alpha;
 
     ImVec4 outer = col;
     outer.x = std::min(outer.x * 1.12f + 0.16f, 1.f);
     outer.y = std::min(outer.y * 1.12f + 0.16f, 1.f);
     outer.z = std::min(outer.z * 1.12f + 0.16f, 1.f);
-    outer.w = 0.92f * alpha;
+    outer.w = 0.82f * alpha;
 
     const ImVec2 outer_h(c.x + sx * len, c.y);
     const ImVec2 outer_v(c.x, c.y + sy * len);
@@ -95,7 +104,7 @@ void frame_corner(ImDrawList* dl, ImVec2 c, float sx, float sy, float len, float
     dl->AddLine(in_c, in_v, ImGui::ColorConvertFloat4ToU32(inner), 1.f);
 
     ImVec4 cap = outer;
-    cap.w *= 0.35f;
+    cap.w *= 0.20f;
     dl->AddLine(outer_h, in_h, ImGui::ColorConvertFloat4ToU32(cap), 1.f);
     dl->AddLine(outer_v, in_v, ImGui::ColorConvertFloat4ToU32(cap), 1.f);
 }
@@ -133,19 +142,14 @@ bool project_bounds(const Player& p, const Mat4x4& vm, float sw, float sh, ImVec
 ImVec4 health_vec(float t)
 {
     t = std::clamp(t, 0.f, 1.f);
-    if (t > 0.5f) {
-        const float k = (t - 0.5f) * 2.f;
-        return ImVec4(
-            0.92f * (1.f - k) + 0.28f * k,
-            0.78f * (1.f - k) + 0.84f * k,
-            0.22f * (1.f - k) + 0.42f * k,
-            1.f);
-    }
-    const float k = t * 2.f;
+    const ImVec4 low = from_arr(g_menu.health_low);
+    const ImVec4 high = from_arr(g_menu.health_high);
+    if (!g_menu.vis_health_gradient)
+        return high;
     return ImVec4(
-        0.84f * (1.f - k) + 0.92f * k,
-        0.16f * (1.f - k) + 0.78f * k,
-        0.18f * (1.f - k) + 0.22f * k,
+        low.x * (1.f - t) + high.x * t,
+        low.y * (1.f - t) + high.y * t,
+        low.z * (1.f - t) + high.z * t,
         1.f);
 }
 
@@ -153,16 +157,19 @@ void draw_health_bar(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, float hp, f
 {
     hp = std::clamp(hp, 0.f, 1.f);
     const float h = box_max.y - box_min.y;
-    const float w = std::clamp(h * 0.028f, 2.6f, 3.6f);
+    const float w = std::clamp(static_cast<float>(g_menu.vis_health_width), 2.f, 8.f);
     const float gap = 6.f;
-    const ImVec2 a(box_max.x + gap, box_min.y);
-    const ImVec2 b(a.x + w, box_max.y);
-    const float rnd = w * 0.5f;
+    const bool left = g_menu.vis_health_position == static_cast<int>(HealthBarPosition::Left);
+    const ImVec2 a = left ? ImVec2(box_min.x - gap - w, box_min.y)
+                          : ImVec2(box_max.x + gap, box_min.y);
+    const ImVec2 b = left ? ImVec2(box_min.x - gap, box_max.y)
+                          : ImVec2(a.x + w, box_max.y);
+    const float rnd = std::min(w * 0.45f, 2.f);
 
     ImVec4 hc = health_vec(hp);
     hc.w = 0.18f * alpha;
     dl->AddShadowRect(ImVec2(a.x - 1.f, a.y - 1.f), ImVec2(b.x + 1.f, b.y + 1.f),
-                      ImGui::ColorConvertFloat4ToU32(hc), 8.f, ImVec2(0, 0), ImDrawFlags_ShadowCutOutShapeBackground, rnd);
+                      ImGui::ColorConvertFloat4ToU32(hc), 6.f, ImVec2(0, 0), ImDrawFlags_ShadowCutOutShapeBackground, rnd);
 
     dl->AddRectFilled(a, b, IM_COL32(6, 8, 10, (int)(155 * alpha)), rnd);
     dl->AddRect(a, b, IM_COL32(8, 10, 12, (int)(210 * alpha)), rnd, 0, 1.f);
@@ -181,6 +188,18 @@ void draw_health_bar(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, float hp, f
         const float shimmer = 0.07f + 0.04f * (0.5f + 0.5f * std::sinf(time_s * 1.35f));
         dl->AddRectFilled(ImVec2(fa.x, fa.y), ImVec2(fa.x + w * 0.34f, fb.y),
                           IM_COL32(255, 255, 255, (int)(shimmer * 255.f * alpha)), rnd * 0.35f);
+    }
+
+    if (g_menu.vis_health_value) {
+        char value[12]{};
+        std::snprintf(value, sizeof(value), "%d", static_cast<int>(std::lround(hp * 100.f)));
+        const ImVec2 text_size = ImGui::CalcTextSize(value);
+        const float tx = left ? a.x - 4.f - text_size.x : b.x + 4.f;
+        const float ty = a.y + 1.f;
+        const ImU32 text_shadow = IM_COL32(3, 5, 8, static_cast<int>(180.f * alpha));
+        const ImU32 text_col = with_a(health_vec(hp), 0.95f * alpha);
+        dl->AddText(ImVec2(tx + 1.f, ty + 1.f), text_shadow, value);
+        dl->AddText(ImVec2(tx, ty), text_col, value);
     }
 }
 
@@ -224,6 +243,80 @@ void draw_3d_box(ImDrawList* dl, ImVec2 c[8], ImVec4 col, float thickness, float
     }
 }
 
+void draw_head_marker(ImDrawList* dl, ImVec2 center, float radius, ImVec4 col, HeadMarkerStyle style, float glow, float alpha, float time_s)
+{
+    if (radius < 2.f || alpha <= 0.01f)
+        return;
+
+    const float pulse = 0.92f + 0.08f * std::sinf(time_s * 1.8f);
+    ImVec4 halo = col;
+    halo.w = 0.16f * alpha * pulse;
+    const float shadow_size = std::clamp(glow + 2.f, 4.f, 12.f);
+    const ImU32 outline = with_a(ImVec4(0.02f, 0.03f, 0.04f, 1.f), 0.82f * alpha);
+    ImVec4 fill = col;
+    fill.w = 0.20f * alpha;
+    ImVec4 ring = col;
+    ring.w = 0.94f * alpha;
+
+    if (style == HeadMarkerStyle::Dot) {
+        const float dot_radius = std::max(2.f, radius * 0.48f);
+        dl->AddShadowCircle(center, dot_radius, ImGui::ColorConvertFloat4ToU32(halo), shadow_size,
+                            ImVec2(0, 0), 0, 24);
+        dl->AddCircleFilled(center, dot_radius + 1.1f, outline, 24);
+        dl->AddCircleFilled(center, dot_radius, ImGui::ColorConvertFloat4ToU32(ring), 24);
+        return;
+    }
+
+    if (style == HeadMarkerStyle::Box) {
+        const float half = radius * 0.82f;
+        const ImVec2 mn(center.x - half, center.y - half);
+        const ImVec2 mx(center.x + half, center.y + half);
+        dl->AddShadowRect(mn, mx, ImGui::ColorConvertFloat4ToU32(halo), shadow_size,
+                          ImVec2(0, 0), ImDrawFlags_ShadowCutOutShapeBackground, 3.f);
+        dl->AddRectFilled(mn, mx, ImGui::ColorConvertFloat4ToU32(fill), 3.f);
+        dl->AddRect(mn, mx, outline, 3.f, 0, 2.2f);
+        dl->AddRect(mn, mx, ImGui::ColorConvertFloat4ToU32(ring), 3.f, 0, 1.2f);
+        return;
+    }
+
+    dl->AddShadowCircle(center, radius + 0.5f, ImGui::ColorConvertFloat4ToU32(halo), shadow_size,
+                        ImVec2(0, 0), 0, 28);
+    dl->AddCircle(center, radius + 1.1f, outline, 28, 2.4f);
+    dl->AddCircleFilled(center, radius, ImGui::ColorConvertFloat4ToU32(fill), 28);
+    dl->AddCircle(center, radius, ImGui::ColorConvertFloat4ToU32(ring), 28, 1.25f);
+}
+
+float distance_alpha(float distance_m, float max_distance_m)
+{
+    if (max_distance_m <= 0.f)
+        return 1.f;
+    const float fade_start = max_distance_m * 0.72f;
+    if (distance_m <= fade_start)
+        return 1.f;
+    if (distance_m >= max_distance_m)
+        return 0.f;
+    const float t = std::clamp((distance_m - fade_start) / (max_distance_m - fade_start), 0.f, 1.f);
+    const float smooth = t * t * (3.f - 2.f * t);
+    return 1.f - smooth;
+}
+
+void draw_distance_label(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, float distance_m, float alpha)
+{
+    if (!g_menu.vis_distance || alpha <= 0.01f)
+        return;
+
+    char text[24]{};
+    std::snprintf(text, sizeof(text), "%dm", std::max(0, static_cast<int>(std::lround(distance_m))));
+    const ImVec2 size = ImGui::CalcTextSize(text);
+    const float x = (box_min.x + box_max.x - size.x) * 0.5f;
+    const float y_below = box_max.y + 4.f;
+    const float y = y_below + size.y <= ImGui::GetIO().DisplaySize.y ? y_below : box_min.y - size.y - 4.f;
+    const ImU32 shadow = IM_COL32(3, 5, 8, static_cast<int>(175.f * alpha));
+    const ImU32 label = IM_COL32(226, 232, 238, static_cast<int>(218.f * alpha));
+    dl->AddText(ImVec2(x + 1.f, y + 1.f), shadow, text);
+    dl->AddText(ImVec2(x, y), label, text);
+}
+
 } // namespace
 
 void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float screen_w, float screen_h, float time_s)
@@ -235,16 +328,21 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
     const float line_t = std::clamp(g_menu.vis_thickness / 12.f, 0.9f, 1.6f);
     const float glow = g_menu.vis_glow / 12.f;
     const float corner_pct = std::clamp(g_menu.vis_corner / 100.f, 0.14f, 0.36f);
-    const float max_dist = static_cast<float>(g_menu.vis_max_distance) * 10.f;
+    const float max_dist_m = static_cast<float>(g_menu.vis_max_distance);
     const bool vis_on = g_menu.vis_visible_only && vis.ready();
 
     for (const Player& p : game.players()) {
         if (g_menu.vis_team_check && p.team == game.local_team())
             continue;
-        if (max_dist > 1.f && p.distance > max_dist)
+        const float distance_m = p.distance * 0.0254f;
+        if (max_dist_m > 0.f && distance_m >= max_dist_m)
             continue;
-        if (vis_on && !vis.visible(game.local_head(), p.head))
-            continue;
+        if (vis_on) {
+            const Vec3 from = game.local_head();
+            const Vec3 chest = p.origin + Vec3{ 0.f, 0.f, p.ducked ? 32.f : 48.f };
+            if (!vis.visible(from, p.eye) && !vis.visible(from, chest))
+                continue;
+        }
 
         ImVec2 corners[8]{};
         ImVec2 mn, mx;
@@ -255,7 +353,7 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         mn.x -= 3.5f; mn.y -= 2.5f;
         mx.x += 3.5f; mx.y += 2.5f;
 
-        const float dist_a = std::clamp(1.f - (p.distance - 350.f) / 3600.f, 0.42f, 1.f);
+        const float dist_a = distance_alpha(distance_m, max_dist_m);
         const float move_a = 0.90f + 0.10f * std::clamp(p.speed / 180.f, 0.f, 1.f);
         const float pulse = 0.975f + 0.025f * std::sinf(time_s * 1.55f + p.origin.x * 0.02f);
         const float alpha = dist_a * move_a * pulse;
@@ -263,6 +361,7 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
 
         const bool teammate = p.team == game.local_team();
         const ImVec4 col = from_arr(teammate ? g_menu.box_team : g_menu.box_enemy);
+        const ImVec4 head_col = from_arr(teammate ? g_menu.head_team : g_menu.head_enemy);
         const BoxStyle style = static_cast<BoxStyle>(g_menu.vis_box_style);
 
         if (style == BoxStyle::Filled)
@@ -275,26 +374,224 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
 
         if (g_menu.vis_health)
             draw_health_bar(dl, mn, mx, hp, alpha, time_s);
+
+        draw_distance_label(dl, mn, mx, distance_m, alpha);
+
+        if (g_menu.vis_head) {
+            const Vec3 head_anchor = p.eye + (p.head - p.eye) * 0.45f;
+            Vec2 head_screen{};
+            if (world_to_screen(head_anchor, game.view_matrix(), screen_w, screen_h, head_screen)) {
+                const float size_scale = std::clamp(g_menu.vis_head_size / 10.f, 0.5f, 2.f);
+                const float radius = std::clamp((mx.x - mn.x) * 0.105f * size_scale, 2.5f, 24.f);
+                if (head_screen.x >= -radius && head_screen.x <= screen_w + radius &&
+                    head_screen.y >= -radius && head_screen.y <= screen_h + radius) {
+                    draw_head_marker(dl, ImVec2(head_screen.x, head_screen.y), radius, head_col,
+                                     static_cast<HeadMarkerStyle>(g_menu.vis_head_style), glow, alpha, time_s);
+                }
+            }
+        }
     }
 }
 
-void draw_watermark(ImDrawList* dl, const Game& game, const VisCheck& vis, float /*screen_w*/)
+namespace {
+
+void icon_fps_bars(ImDrawList* dl, ImVec2 p, ImU32 col)
+{
+    const float h[3] = { 5.f, 8.f, 11.f };
+    for (int i = 0; i < 3; ++i) {
+        const float x = p.x + i * 4.f;
+        dl->AddRectFilled(ImVec2(x, p.y + 11.f - h[i]), ImVec2(x + 2.4f, p.y + 11.f), col, 0.8f);
+    }
+}
+
+void icon_signal(ImDrawList* dl, ImVec2 p, ImU32 col)
+{
+    const float h[4] = { 4.f, 6.5f, 9.f, 11.5f };
+    for (int i = 0; i < 4; ++i) {
+        const float x = p.x + i * 3.4f;
+        dl->AddRectFilled(ImVec2(x, p.y + 12.f - h[i]), ImVec2(x + 2.2f, p.y + 12.f), col, 0.7f);
+    }
+}
+
+void icon_clock(ImDrawList* dl, ImVec2 c, ImU32 col)
+{
+    dl->AddCircle(c, 6.2f, col, 16, 1.15f);
+    dl->AddLine(c, ImVec2(c.x, c.y - 3.4f), col, 1.15f);
+    dl->AddLine(c, ImVec2(c.x + 2.6f, c.y + 1.4f), col, 1.15f);
+}
+
+void icon_pin(ImDrawList* dl, ImVec2 c, ImU32 col)
+{
+    dl->AddCircle(c, 4.4f, col, 12, 1.15f);
+    dl->AddCircleFilled(c, 1.5f, col, 8);
+    dl->AddLine(ImVec2(c.x, c.y + 4.2f), ImVec2(c.x, c.y + 8.6f), col, 1.2f);
+}
+
+const char* status_region()
+{
+    static char buf[64] = "Frankfurt am Main, DE";
+    static bool init = false;
+    if (init)
+        return buf;
+    init = true;
+
+    wchar_t iso[8]{};
+    const GEOID id = GetUserGeoID(GEOCLASS_NATION);
+    GetGeoInfoW(id, GEO_ISO2, iso, 8, 0);
+
+    DYNAMIC_TIME_ZONE_INFORMATION tz{};
+    GetDynamicTimeZoneInformation(&tz);
+    const wchar_t* key = tz.TimeZoneKeyName;
+
+    struct Map { const wchar_t* tz; const char* label; };
+    const Map maps[] = {
+        { L"W. Europe Standard Time", "Frankfurt am Main, DE" },
+        { L"Central Europe Standard Time", "Berlin, DE" },
+        { L"GMT Standard Time", "London, GB" },
+        { L"Romance Standard Time", "Paris, FR" },
+        { L"Eastern Standard Time", "New York, US" },
+        { L"Pacific Standard Time", "Los Angeles, US" },
+        { L"Russian Standard Time", "Moscow, RU" },
+        { L"Tokyo Standard Time", "Tokyo, JP" },
+        { L"China Standard Time", "Shanghai, CN" },
+    };
+    for (const auto& m : maps) {
+        if (key && !_wcsicmp(key, m.tz)) {
+            std::snprintf(buf, sizeof(buf), "%s", m.label);
+            return buf;
+        }
+    }
+    if (iso[0] && iso[1]) {
+        std::snprintf(buf, sizeof(buf), "%c%c", (char)iso[0], (char)iso[1]);
+    }
+    return buf;
+}
+
+const char* fallback_user()
+{
+    static char buf[64] = "player";
+    static bool init = false;
+    if (init)
+        return buf;
+    init = true;
+    DWORD n = sizeof(buf);
+    if (!GetUserNameA(buf, &n) || !buf[0])
+        std::snprintf(buf, sizeof(buf), "player");
+    return buf;
+}
+
+ImU32 ping_col(int ms)
+{
+    if (ms <= 0) return IM_COL32(168, 176, 186, 170);
+    if (ms < 45) return IM_COL32(156, 204, 176, 210);
+    if (ms < 80) return IM_COL32(210, 196, 150, 210);
+    return IM_COL32(210, 160, 158, 210);
+}
+
+} // namespace
+
+void draw_watermark(ImDrawList* dl, const Game& game, const VisCheck& /*vis*/, float /*screen_w*/)
 {
     if (!g_menu.misc_watermark || !dl)
         return;
 
-    char line[192];
-    std::snprintf(line, sizeof(line), "CS2  ·  %s  ·  %s  ·  vis %s (%zu tris)  ·  INSERT  ·  F8",
-                  game.attached() ? "live" : "waiting",
-                  game.map_name().empty() ? "no map" : game.map_name().c_str(),
-                  vis.ready() ? "on" : "off",
-                  vis.triangles());
+    const int fps = game.fps();
+    const int ping = game.local_ping();
+    const double t = ImGui::GetTime();
+    static double t0 = -1.0;
+    if (t0 < 0.0)
+        t0 = t;
+    const int elapsed = (int)(t - t0);
+    const int hh = elapsed / 3600;
+    const int mm = (elapsed / 60) % 60;
+    const int ss = elapsed % 60;
 
-    const ImVec2 p(18.f, 14.f);
-    const ImVec2 sz = ImGui::CalcTextSize(line);
-    dl->AddRectFilled(ImVec2(p.x - 10.f, p.y - 6.f), ImVec2(p.x + sz.x + 10.f, p.y + sz.y + 6.f),
-                      IM_COL32(10, 12, 16, 110), 8.f);
-    dl->AddRect(ImVec2(p.x - 10.f, p.y - 6.f), ImVec2(p.x + sz.x + 10.f, p.y + sz.y + 6.f),
-                IM_COL32(220, 230, 240, 22), 8.f, 0, 1.f);
-    dl->AddText(p, IM_COL32(220, 228, 236, 190), line);
+    char fps_s[16], ping_s[16], time_s[16];
+    if (fps > 0)
+        std::snprintf(fps_s, sizeof(fps_s), "%d FPS", fps);
+    else
+        std::snprintf(fps_s, sizeof(fps_s), "-- FPS");
+    if (ping > 0)
+        std::snprintf(ping_s, sizeof(ping_s), "%d ms", ping);
+    else
+        std::snprintf(ping_s, sizeof(ping_s), "-- ms");
+    if (hh > 0)
+        std::snprintf(time_s, sizeof(time_s), "%d:%02d:%02d", hh, mm, ss);
+    else
+        std::snprintf(time_s, sizeof(time_s), "%02d:%02d", mm, ss);
+
+    const char* region = status_region();
+    const char* user = !game.local_name().empty() ? game.local_name().c_str() : fallback_user();
+
+    const ImU32 text = IM_COL32(220, 228, 236, 205);
+    const ImU32 mute = IM_COL32(168, 176, 186, 165);
+    const ImU32 fps_c = fps >= 120 ? IM_COL32(156, 204, 176, 210)
+                      : fps >= 60  ? text
+                                   : IM_COL32(210, 196, 150, 210);
+    const ImU32 ping_c = ping_col(ping);
+    const ImU32 live_c = game.attached() ? IM_COL32(132, 196, 164, 230) : IM_COL32(196, 168, 120, 210);
+
+    const ImVec2 fps_sz = ImGui::CalcTextSize(fps_s);
+    const ImVec2 ping_sz = ImGui::CalcTextSize(ping_s);
+    const ImVec2 time_sz = ImGui::CalcTextSize(time_s);
+    const ImVec2 region_sz = ImGui::CalcTextSize(region);
+    const ImVec2 user_sz = ImGui::CalcTextSize(user);
+
+    const float icon_w = 16.f;
+    const float gap = 8.f;
+    const float sep = 14.f;
+    const float pad_x = 14.f;
+    const float h = 38.f;
+
+    const float seg_fps = icon_w + gap + fps_sz.x;
+    const float seg_ping = icon_w + gap + ping_sz.x;
+    const float seg_time = icon_w + gap + time_sz.x;
+    const float seg_reg = icon_w + gap + region_sz.x;
+    const float seg_user = user_sz.x + 18.f;
+
+    const float w = pad_x + seg_fps + sep + seg_ping + sep + seg_time + sep + seg_reg + sep + seg_user + pad_x;
+    const ImVec2 a(16.f, 14.f);
+    const ImVec2 b(a.x + w, a.y + h);
+
+    dl->AddShadowRect(a, b, IM_COL32(0, 0, 0, 70), 16.f, ImVec2(0, 4), ImDrawFlags_ShadowCutOutShapeBackground, 11.f);
+    dl->AddRectFilled(a, b, IM_COL32(10, 12, 16, 148), 11.f);
+    dl->AddRect(a, b, IM_COL32(220, 230, 240, 26), 11.f, 0, 1.f);
+
+    auto sep_at = [&](float x) {
+        dl->AddLine(ImVec2(x, a.y + 11.f), ImVec2(x, b.y - 11.f), IM_COL32(220, 230, 240, 28), 1.f);
+    };
+
+    float x = a.x + pad_x;
+    const float cy = a.y + h * 0.5f;
+    auto text_y = [&](const ImVec2& sz) { return cy - sz.y * 0.5f; };
+
+    icon_fps_bars(dl, ImVec2(x, cy - 6.f), fps_c);
+    dl->AddText(ImVec2(x + icon_w + gap, text_y(fps_sz)), fps_c, fps_s);
+    x += seg_fps + sep * 0.5f;
+    sep_at(x);
+    x += sep * 0.5f;
+
+    icon_signal(dl, ImVec2(x, cy - 6.5f), ping_c);
+    dl->AddText(ImVec2(x + icon_w + gap, text_y(ping_sz)), ping_c, ping_s);
+    x += seg_ping + sep * 0.5f;
+    sep_at(x);
+    x += sep * 0.5f;
+
+    icon_clock(dl, ImVec2(x + 7.f, cy), mute);
+    dl->AddText(ImVec2(x + icon_w + gap, text_y(time_sz)), text, time_s);
+    x += seg_time + sep * 0.5f;
+    sep_at(x);
+    x += sep * 0.5f;
+
+    icon_pin(dl, ImVec2(x + 7.f, cy - 2.f), mute);
+    dl->AddText(ImVec2(x + icon_w + gap, text_y(region_sz)), text, region);
+    x += seg_reg + sep * 0.5f;
+    sep_at(x);
+    x += sep * 0.5f;
+
+    dl->AddText(ImVec2(x, text_y(user_sz)), text, user);
+    const ImVec2 dot(b.x - pad_x - 5.f, cy);
+    dl->AddCircleFilled(dot, 6.6f, IM_COL32(255, 255, 255, 18), 16);
+    dl->AddCircleFilled(dot, 4.2f, live_c, 16);
+    dl->AddCircle(dot, 4.2f, IM_COL32(255, 255, 255, 35), 16, 1.f);
 }
