@@ -91,10 +91,9 @@ The overlay process name is `CS2.exe`. The game process is `cs2.exe` under the S
 | Map mesh | Visible-only ESP only filters after the `.tri` BVH is ready |
 | Click-through | With the menu closed, mouse and keyboard go to the game |
 
-## What is not set up yet
+## Once inside
 
-- `config/settings.json` is **not** loaded or saved at runtime. Menu values live in `g_menu` for the process lifetime only. TODO: persist settings.
-- Aim and Trigger tabs do not write input. TODO: see [Roadmap](roadmap.md).
+Open the menu, hit a preset under Settings → Configs if you want a sane starting point ([Configs](configs.md)), then hold ALT in-game for aim or trigger ([Combat](combat.md)). Both drive the mouse externally, so keep the game window focused and close the menu before testing.
 
 ---
 

@@ -3,6 +3,9 @@
 #include "app/settings.hpp"
 #include "app/config.hpp"
 #include "features/esp.hpp"
+#include "features/hotkeys.hpp"
+#include "features/spec.hpp"
+#include "features/hitlog.hpp"
 #include "features/weapon_icons_data.hpp"
 #include "features/combat.hpp"
 #include "sdk/game.hpp"
@@ -92,6 +95,7 @@ static const char* kHealthPosition[] = { "Left", "Right" };
 static const char* kHeadStyle[] = { "Circle", "Dot", "Box" };
 static const char* kSkeletonMode[] = { "Head only", "Upper body", "Full skeleton" };
 static const char* kSkeletonStyle[] = { "Lines", "Points", "Lines + points" };
+static const char* kAnchors[] = { "Top right", "Top left", "Bottom left", "Bottom right" };
 
 static BOOL CALLBACK find_cs2_cb(HWND hwnd, LPARAM)
 {
@@ -245,6 +249,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     tabs_info.push_back({ "Visuals",  { "Players" } });
     tabs_info.push_back({ "Combat",   { "Aim", "Trigger" } });
     tabs_info.push_back({ "Settings", { "Menu", "Configs" } });
+    tabs_info.push_back({ "Misc",     { "Team", "Hitlog" } });
 
     c_tabs p_tabs(tabs_info);
     CNotifications p_notif;
@@ -315,8 +320,12 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         combat_draw(GetBackgroundDrawList(), g_game, ow, oh);
         if (g_menu.misc_watermark)
             draw_watermark(GetBackgroundDrawList(), g_game, g_vis, ow);
+        draw_hotkeys(GetBackgroundDrawList());
+        draw_spectators(GetBackgroundDrawList(), g_game, ow, oh);
+        hitlog_draw(GetBackgroundDrawList(), g_game, ow, oh);
 
         combat_tick(g_game, g_vis, ImGui::GetIO().DeltaTime, g_menu_open);
+        hitlog_tick(g_game);
 
         c::anim::speed = ImGui::GetIO().DeltaTime * 12.f;
         c::second_color = utils::GetDarkColor(c::main_color);
@@ -489,6 +498,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::Checkbox("Recoil compensation", &g_menu.aim_recoil);
                     custom::SliderFloat("RCS yaw", &prof.rcs_yaw, 0.f, 2.5f, "%.2f");
                     custom::SliderFloat("RCS pitch", &prof.rcs_pitch, 0.f, 2.5f, "%.2f");
+                    custom::Checkbox("Debug log", &g_menu.aim_debug);
                     ImGui::Dummy(ImVec2(0, 6));
                     ImGui::TextWrapped("Legit: FOV 1.5-5, smooth 0.5-0.8, humanize on. Hold ALT or a mouse button.");
                     custom::EndChild();
@@ -524,6 +534,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::Child("Menu", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
                     custom::ColorEdit4("Accent", (float*)&c::main_color, picker_flags);
                     custom::Checkbox("Watermark", &g_menu.misc_watermark);
+                    custom::Checkbox("Hotkeys panel", &g_menu.misc_hotkeys);
                     ImGui::Dummy(ImVec2(0, 8));
                     ImGui::TextWrapped("INSERT or F7 toggles this panel. ESC hides it. F8 unloads the overlay.");
                     ImGui::Dummy(ImVec2(0, 8));
@@ -541,102 +552,186 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
 
                 if (p_tabs.IsTabActive(4))
                 {
+                    // Zwei Spalten wie in Visuals/Combat: links Aktionen (fix, kompakt),
+                    // rechts die gespeicherten Configs als direkt scrollende Liste.
+                    // Das ersetzt den alten Single-Panel-Aufbau mit verschachteltem
+                    // BeginChild: der innere ##cfg_list hat Wheel-Events geschluckt,
+                    // sodass der aeussere Bereich nie scrollte und Save/Refresh/
+                    // Default unten abgeschnitten und unklickbar waren.
                     auto& cfgs = ConfigStore::instance();
-                    const float panel_w = ImGui::GetContentRegionAvail().x - 21.f;
                     ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
-                    custom::Child("Configs", ImVec2(panel_w, full_h), true);
+                    custom::Child("Actions##CfgL", ImVec2(half_w, full_h), true);
+                    {
+                        const float inner_w = ImGui::GetContentRegionAvail().x;
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.f, 1.f, 1.f, 0.045f));
+                        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(1.f, 1.f, 1.f, 0.08f));
+                        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(1.f, 1.f, 1.f, 0.10f));
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.94f, 0.96f, 1.f));
+                        ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.62f, 0.66f, 0.70f, 0.85f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.f, 14.f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0.f, 0.f));
+                        ImGui::PushItemWidth(inner_w);
+                        ImGui::InputTextEx("##n", "Type a name", g_cfg_name, IM_ARRAYSIZE(g_cfg_name),
+                                           ImVec2(inner_w, 48.f), ImGuiInputTextFlags_None);
+                        ImGui::PopItemWidth();
+                        ImGui::PopStyleVar(3);
+                        ImGui::PopStyleColor(5);
 
-                    const float inner_w = ImGui::GetContentRegionAvail().x;
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.f, 1.f, 1.f, 0.045f));
-                    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(1.f, 1.f, 1.f, 0.08f));
-                    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(1.f, 1.f, 1.f, 0.10f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.94f, 0.96f, 1.f));
-                    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.62f, 0.66f, 0.70f, 0.85f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(16.f, 14.f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0.f, 0.f));
-                    ImGui::PushItemWidth(inner_w);
-                    ImGui::InputTextEx("##n", "Type a name", g_cfg_name, IM_ARRAYSIZE(g_cfg_name),
-                                       ImVec2(inner_w, 48.f), ImGuiInputTextFlags_None);
-                    ImGui::PopItemWidth();
-                    ImGui::PopStyleVar(3);
-                    ImGui::PopStyleColor(5);
-
-                    ImGui::Dummy(ImVec2(0, 6));
-                    if (custom::Button("Save", ImVec2(inner_w, 44))) {
-                        const std::string want = sanitize_config_name(g_cfg_name);
-                        if (want.empty()) {
-                            p_notif.AddMessage("Enter a name (A-Z, 0-9)", ICON_ALERT_FILL, ImColor(210, 120, 120));
-                        } else if (cfgs.save(want)) {
-                            g_cfg_selected = want;
-                            std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", want.c_str());
-                            p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
-                        } else {
-                            p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                        ImGui::Dummy(ImVec2(0, 2));
+                        ImGui::TextWrapped("Presets");
+                        ImGui::Dummy(ImVec2(0, 2));
+                        // Vertikal gestapelt statt 3-spaltig: kein Abschneiden am
+                        // rechten Rand mehr ("Semi Rage" war halb ausserhalb).
+                        if (custom::Button("Legit", ImVec2(inner_w, 34))) {
+                            if (cfgs.apply_preset(0))
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                            else
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
                         }
-                    }
-                    ImGui::Dummy(ImVec2(0, 6));
-                    const float btn_w = (inner_w - 12.f) * 0.5f;
-                    if (custom::Button("Refresh", ImVec2(btn_w, 40))) {
-                        cfgs.refresh();
-                        p_notif.AddMessage(cfgs.status().c_str(), ICON_REFRESH_1_FILL, c::main_color);
-                    }
-                    ImGui::SameLine(0, 12.f);
-                    if (custom::Button("Default", ImVec2(btn_w, 40))) {
-                        cfgs.reset_defaults();
-                        p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
-                    }
-                    ImGui::NewLine();
-
-                    const std::string preview = sanitize_config_name(g_cfg_name);
-                    ImGui::Dummy(ImVec2(0, 2));
-                    if (preview.empty())
-                        ImGui::TextWrapped("Name: letters, numbers, dash or underscore.");
-                    else
-                        ImGui::TextWrapped("Will save as  %s.json   ·   %s", preview.c_str(), cfgs.status().c_str());
-
-                    ImGui::Dummy(ImVec2(0, 6));
-                    const float list_h = ImGui::GetContentRegionAvail().y - 6.f;
-                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(1.f, 1.f, 1.f, 0.03f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.f, 10.f));
-                    ImGui::BeginChild("##cfg_list", ImVec2(inner_w, list_h > 70.f ? list_h : 70.f), true,
-                                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
-                    if (cfgs.names().empty()) {
-                        ImGui::TextWrapped("No saved configs yet.");
-                    } else {
-                        for (const std::string& name : cfgs.names()) {
-                            ImGui::PushID(name.c_str());
-                            const float row_w = ImGui::GetContentRegionAvail().x;
-                            if (custom::Button("Load", ImVec2(90.f, 36.f))) {
-                                if (cfgs.load(name)) {
-                                    g_cfg_selected = name;
-                                    std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", name.c_str());
-                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
-                                } else {
-                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
-                                }
+                        if (custom::Button("Legit with Aim", ImVec2(inner_w, 34))) {
+                            if (cfgs.apply_preset(1))
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                            else
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                        }
+                        if (custom::Button("Semi Rage", ImVec2(inner_w, 34))) {
+                            if (cfgs.apply_preset(2))
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                            else
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                        }
+                        ImGui::Dummy(ImVec2(0, 2));
+                        if (custom::Button("Save", ImVec2(inner_w, 38))) {
+                            const std::string want = sanitize_config_name(g_cfg_name);
+                            if (want.empty()) {
+                                p_notif.AddMessage("Enter a name (A-Z, 0-9)", ICON_ALERT_FILL, ImColor(210, 120, 120));
+                            } else if (cfgs.save(want)) {
+                                g_cfg_selected = want;
+                                std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", want.c_str());
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                            } else {
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
                             }
-                            ImGui::SameLine(0, 8.f);
-                            if (custom::Button("Delete", ImVec2(90.f, 36.f))) {
-                                if (cfgs.remove(name)) {
-                                    if (g_cfg_selected == name)
-                                        g_cfg_selected.clear();
-                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_DELETE_FILL, c::main_color);
-                                } else {
-                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
-                                }
+                        }
+                        ImGui::Dummy(ImVec2(0, 2));
+                        {
+                            const float btn_w = (inner_w - 12.f) * 0.5f;
+                            if (custom::Button("Refresh", ImVec2(btn_w, 34))) {
+                                cfgs.refresh();
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_REFRESH_1_FILL, c::main_color);
                             }
                             ImGui::SameLine(0, 12.f);
-                            ImGui::AlignTextToFramePadding();
-                            ImGui::TextUnformatted(name.c_str());
-                            ImGui::Dummy(ImVec2(row_w, 4.f));
-                            ImGui::PopID();
+                            if (custom::Button("Default", ImVec2(btn_w, 34))) {
+                                cfgs.reset_defaults();
+                                p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                            }
+                            ImGui::NewLine();
+                        }
+                        const std::string preview = sanitize_config_name(g_cfg_name);
+                        ImGui::Dummy(ImVec2(0, 2));
+                        if (preview.empty())
+                            ImGui::TextWrapped("Name: letters, numbers, dash or underscore.");
+                        else
+                            ImGui::TextWrapped("Will save as  %s.json", preview.c_str());
+                        ImGui::TextWrapped("%s", cfgs.status().c_str());
+                    }
+                    custom::EndChild();
+
+                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+                    custom::Child("Saved##CfgR", ImVec2(half_w, full_h), true);
+                    {
+                        char saved_title[64]{};
+                        std::snprintf(saved_title, sizeof(saved_title), "Saved (%d)",
+                                      static_cast<int>(cfgs.names().size()));
+                        ImGui::TextWrapped("%s", saved_title);
+                        ImGui::Dummy(ImVec2(0, 2));
+                        if (cfgs.names().empty()) {
+                            ImGui::TextWrapped("No saved configs yet.");
+                        } else {
+                            for (const std::string& name : cfgs.names()) {
+                                ImGui::PushID(name.c_str());
+                                const float row_w = ImGui::GetContentRegionAvail().x;
+                                if (custom::Button("Load", ImVec2(76.f, 32.f))) {
+                                    if (cfgs.load(name)) {
+                                        g_cfg_selected = name;
+                                        std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", name.c_str());
+                                        p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                                    } else {
+                                        p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                    }
+                                }
+                                ImGui::SameLine(0, 8.f);
+                                if (custom::Button("Delete", ImVec2(76.f, 32.f))) {
+                                    if (cfgs.remove(name)) {
+                                        if (g_cfg_selected == name)
+                                            g_cfg_selected.clear();
+                                        p_notif.AddMessage(cfgs.status().c_str(), ICON_DELETE_FILL, c::main_color);
+                                    } else {
+                                        p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                    }
+                                }
+                                ImGui::SameLine(0, 12.f);
+                                ImGui::AlignTextToFramePadding();
+                                ImGui::TextUnformatted(name.c_str());
+                                ImGui::Dummy(ImVec2(row_w, 2.f));
+                                ImGui::PopID();
+                            }
                         }
                     }
-                    ImGui::EndChild();
-                    ImGui::PopStyleVar(2);
-                    ImGui::PopStyleColor();
+                    custom::EndChild();
+                }
+
+                if (p_tabs.IsTabActive(5))
+                {
+                    ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
+                    custom::Child("Team ESP##L", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Team names", &g_menu.vis_team_names);
+                    custom::Checkbox("Team distance", &g_menu.vis_team_distance);
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Names draw over teammate boxes in team color, same layout as enemy names. Distance below the box is dimmed.");
+                    custom::EndChild();
+
+                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+                    custom::Child("Spectators##R", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Enable", &g_menu.spec_enable);
+                    custom::Combo("Position", &g_menu.spec_anchor, kAnchors, IM_ARRAYSIZE(kAnchors));
+                    custom::SliderInt("Offset X", &g_menu.spec_off_x, -400, 400);
+                    custom::SliderInt("Offset Y", &g_menu.spec_off_y, -400, 400);
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Lists who spectates you (observer target). Empty shows a dimmed hint. Needs fresh observer offsets; otherwise the list stays empty.");
+                    custom::EndChild();
+                }
+
+                if (p_tabs.IsTabActive(6))
+                {
+                    ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
+                    custom::Child("Hitmarker##L", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Enable", &g_menu.hit_enable);
+                    custom::SliderInt("Size", &g_menu.hit_size, 6, 20);
+                    custom::SliderInt("Thickness", &g_menu.hit_thick, 1, 5);
+                    custom::SliderFloat("Opacity", &g_menu.hit_alpha, 0.2f, 1.f, "%.2f");
+                    custom::SliderInt("Fade (ms)", &g_menu.hit_time, 150, 500);
+                    custom::ColorEdit4("Normal", g_menu.hit_normal, picker_flags);
+                    custom::ColorEdit4("Headshot", g_menu.hit_head, picker_flags);
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Center X on damage. Headshot color applies when the hit lands on the locked head bone.");
+                    custom::EndChild();
+
+                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
+                    custom::Child("Damage log##R", ImVec2(half_w, full_h), true);
+                    custom::Checkbox("Enable", &g_menu.hitlog_enable);
+                    custom::SliderInt("Max entries", &g_menu.hitlog_max, 1, 8);
+                    custom::SliderFloat("Lifetime (s)", &g_menu.hitlog_time, 2.f, 8.f, "%.1f");
+                    custom::Checkbox("Kill weapon icon", &g_menu.hitlog_kill_icon);
+                    custom::Combo("Position", &g_menu.hitlog_anchor, kAnchors, IM_ARRAYSIZE(kAnchors));
+                    custom::SliderInt("Offset X", &g_menu.hitlog_off_x, -400, 400);
+                    custom::SliderInt("Offset Y", &g_menu.hitlog_off_y, -400, 400);
+                    custom::ColorEdit4("Head", g_menu.hitlog_head, picker_flags);
+                    custom::ColorEdit4("Chest", g_menu.hitlog_chest, picker_flags);
+                    custom::ColorEdit4("Body", g_menu.hitlog_body, picker_flags);
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Health-diff feed. Zones are a heuristic from the aim lock; kills show the current weapon glyph.");
                     custom::EndChild();
                 }
 

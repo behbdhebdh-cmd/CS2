@@ -17,6 +17,9 @@ add_executable(CS2 WIN32
     src/sdk/offset_update.cpp
     src/features/esp.cpp
     src/features/combat.cpp
+    src/features/hotkeys.cpp
+    src/features/spec.cpp
+    src/features/hitlog.cpp
     src/features/weapon_icons.cpp
     "${LIAN}/imgui.cpp"
     "${LIAN}/imgui_draw.cpp"

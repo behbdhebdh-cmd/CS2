@@ -96,7 +96,15 @@ Wiki and README edits cannot break the compiler. Do not run `scripts\build.bat` 
 
 ## Settings reset every launch
 
-Expected. `config/settings.json` is not wired. TODO: [Roadmap](roadmap.md).
+Only if you never saved. Settings → Configs → Save writes the full `MenuState` to JSON; Load brings it back. Default just resets RAM.
+
+## Aim slides off the target sideways
+
+That was the shipped yaw-sign bug (`+delta.yaw` instead of `-delta.yaw` in `run_aim`), fixed in the combat pass. If it ever returns: enable Debug log, hold the key, check `configs\aim_debug.log`. Yaw delta and `mx` must oppose; pitch delta and `my` must agree.
+
+## Config buttons clipped or unreachable
+
+Fixed by splitting the tab into Actions / Saved columns with no nested child (the inner list used to swallow wheel events). If the menu runs at minimum height, each column scrolls on its own. Resizing the panel taller also helps; the corner grip is bottom-right.
 
 ---
 

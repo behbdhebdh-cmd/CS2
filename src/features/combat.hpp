@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 struct ImDrawList;
 class Game;
 class VisCheck;
@@ -18,3 +20,8 @@ const CombatProfile& combat_active_profile(const Game& game);
 
 void combat_tick(const Game& game, const VisCheck& vis, float dt, bool menu_open);
 void combat_draw(ImDrawList* dl, const Game& game, float screen_w, float screen_h);
+
+// Current aim lock for the damage-log hit-zone heuristic (0 when unlocked).
+// Bone is a Skel value as int, -1 when no lock.
+uintptr_t combat_aim_pawn();
+int combat_aim_bone();

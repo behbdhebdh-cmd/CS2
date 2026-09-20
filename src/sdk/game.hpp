@@ -45,6 +45,8 @@ public:
     uint32_t build_number() const { return build_number_; }
     const Mat4x4& view_matrix() const { return view_; }
     const std::vector<Player>& players() const { return players_; }
+    const std::vector<std::string>& spectators() const { return spectators_; }
+    uintptr_t local_pawn() const { return local_pawn_; }
     int local_team() const { return local_team_; }
     const Vec3& local_origin() const { return local_origin_; }
     const Vec3& local_head() const { return local_head_; }
@@ -78,6 +80,8 @@ private:
     Vec3 local_head_{};
     Mat4x4 view_{};
     std::vector<Player> players_;
+    std::vector<std::string> spectators_;
+    uintptr_t local_pawn_ = 0;
     std::string map_name_;
     std::string local_name_;
     int local_ping_ = 0;

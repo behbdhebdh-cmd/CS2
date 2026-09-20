@@ -13,6 +13,9 @@ public:
     bool load(const std::string& name);
     bool remove(const std::string& name);
     void reset_defaults();
+    bool apply_preset(int id);
+    static int preset_count() { return 3; }
+    static const char* preset_label(int id);
 
     const std::vector<std::string>& names() const { return names_; }
     const std::string& status() const { return status_; }

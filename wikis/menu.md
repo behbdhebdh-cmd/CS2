@@ -42,6 +42,9 @@ Visuals    Players     (tab index 0)
 Combat     Aim         (1)
            Trigger     (2)
 Settings   Menu        (3)
+           Configs     (4)
+Misc       Team        (5)
+           Hitlog      (6)
 ```
 
 Tab indices are sequential across all sub-tabs (`c_tabs`). Adding or removing a name in `tabs_info` shifts later `IsTabActive(n)` checks.
@@ -56,15 +59,24 @@ See [ESP](esp.md#skeleton-esp).
 
 ### Combat → Aim / Trigger
 
-UI only. See [Features](features.md#menu-only-not-wired) and [Roadmap](roadmap.md).
+Wired since the combat pass. Left child holds the enable/key/visibility/profile sliders, right child the humanize + RCS block and the debug-log toggle. Full math: [Combat](combat.md).
 
 ### Settings → Menu
 
 - Accent color (`c::main_color`)
 - Watermark checkbox → [Watermark](watermark.md)
+- Hotkeys panel checkbox (`misc_hotkeys`, persisted in configs): floating ESP / Aimbot / Triggerbot status with live key pills, drawn under the watermark on the background draw list
 - Offset dump meta + poller status
 - **Refresh offsets** → `OffsetUpdate::request_poll()`
 - **Unload overlay** → `g_want_quit`
+
+### Settings → Configs
+
+Two columns, same halves as every other tab. Left (**Actions**): name field, vertical preset stack, Save, Refresh + Default, save preview. Right (**Saved (n)**): one Load / Delete row per file, scrolls on its own. Details: [Configs](configs.md).
+
+### Misc → Team / Hitlog
+
+Left children hold the ESP-side toggles (**Team names**, **Team distance**) and the **Hitmarker** block (enable, size, opacity, fade, both colors). Right children hold the two floating panels: **Spectators** and **Damage log**, each with enable, corner anchor, X/Y nudge, plus zone colors and kill-icon toggle for the log. Details: [Misc](misc.md).
 
 ## Keybinds
 
@@ -78,7 +90,7 @@ Hard-coded overlay keys (not the LianFlow `Keybind` widgets):
 
 Footer text on the panel repeats: `INSERT / F7 hide · ESC close · F8 unload`.
 
-`custom::Keybind` on Aim / Trigger writes `aim_key` / `trigger_key` and mode. Nothing in `src/` reads those keys for combat. `menu_key` exists on `MenuState` but is unused; overlay toggle is Insert/F7 only. TODO: bind menu toggle to `g_menu.menu_key` if that is intended.
+`custom::Keybind` on Aim / Trigger writes `aim_key` / `trigger_key` and mode, and `combat_tick` reads them every frame through `GetAsyncKeyState`. Defaults are both ALT (`0x12`). `menu_key` exists on `MenuState` but is unused; overlay toggle is Insert/F7 only. TODO: bind menu toggle to `g_menu.menu_key` if that is intended.
 
 ## Color pickers
 
@@ -106,7 +118,7 @@ Popup hit-testing is required. If `WM_NCHITTEST` only tests the main 780×540 re
 
 ## State
 
-`g_menu` (`MenuState`) is process-lifetime RAM. `config/settings.json` is not read or written. TODO: wire Save/Load.
+`g_menu` (`MenuState`) lives in RAM and persists through `ConfigStore` JSON files plus the three built-in presets. See [Configs](configs.md).
 
 ---
 

@@ -4,7 +4,7 @@
 
 ## Is this an injected cheat?
 
-No. It is a second process with a transparent DX11 window. It reads `cs2.exe` via `ReadProcessMemory`. There is no Detours vendor copy and no write into the game in this tree.
+No. It is a second process with a transparent DX11 window. It reads `cs2.exe` via `ReadProcessMemory` and steers through `SendInput` mouse movement. There is no Detours vendor copy and no write into game memory.
 
 ## Where do I run it?
 
@@ -23,9 +23,9 @@ Always identify the overlay by full path or PID.
 
 Both call the same toggle. Insert is the documented default; F7 is a second edge. ESC only hides. F8 unloads. See [Menu](menu.md#keybinds).
 
-## Why is Aim in the menu if it does nothing?
+## How do Aim and Trigger work?
 
-LianFlow pages were kept as a layout placeholder. Checkboxes write `g_menu` only. Combat code is not implemented. See [Roadmap](roadmap.md).
+Hold the configured key (both default to ALT). The aimbot picks the closest enemy bone inside the FOV ring and walks the mouse there with smoothing; the triggerbot fires the left mouse button once a hitbox sits under the crosshair. Full math and timing: [Combat](combat.md). Keep the game window focused and the overlay menu closed while testing, since combat skips frames otherwise.
 
 ## Does “Visible only” use the GPU / CS2 visleafs?
 
@@ -39,9 +39,13 @@ Source engine units are inches. ESP distance labels convert to meters for the sl
 
 Usually yes, if CheatOffsets has a new dump: the worker polls every 10 minutes (or immediately on **Refresh offsets**) and `tick()` patches `offsets::*` in memory. Baked `offsets.hpp` is only the offline fallback. You still need a rebuild if **new fields** must be added to the apply list in `offset_update.cpp`.
 
-## Is `settings.json` my config?
+## Where are my configs?
 
-Not yet. The file is a placeholder (`stage: setup-only`). Menu state is RAM-only.
+Settings → Configs. Save writes `<name>.json` into the resolved config dir (`<exe>\configs` first), Load/Delete manage the files, Default resets RAM to `MenuState{}`. The three preset buttons apply combat setups without files; save afterwards under your own name to keep one. Details: [Configs](configs.md).
+
+## The aim drifts or feels wrong — what do I check?
+
+Turn on Debug log (Combat → Aim → Humanize), hold the aim key over a bot, then open `configs\aim_debug.log`. Each line shows bone, eye/bone positions, view vs want angles, delta before/after smoothing, and the mouse pixels that went out. Pitch delta and `my` share a sign; yaw delta and `mx` oppose. If that relation flips, the mouse mapping regressed.
 
 ## Why do color pickers need special hit-testing?
 
@@ -62,6 +66,10 @@ Implemented. Visuals → Players → **Skeleton**. It does **not** assume cache 
 ## Will editing `wikis/` break the build?
 
 No. CMake does not compile Markdown. Do not run a Release build for wiki-only diffs.
+
+## Do presets overwrite my visuals or keys?
+
+No. Presets only touch aim, trigger, humanize, and RCS. Colors, ESP toggles, and both keybinds survive. See [Configs](configs.md).
 
 ---
 

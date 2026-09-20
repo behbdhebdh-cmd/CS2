@@ -20,23 +20,26 @@ All feature flags live in `MenuState` (`src/app/settings.hpp`) as `g_menu`. Visu
 | Thickness / glow / corner length | 11 / 28 / 24 | Thickness is stored in 0.1 px units |
 | Box / health / head / skeleton colors | see settings.hpp | `custom::ColorEdit4` in Visuals → Color |
 | Watermark | on | [Watermark](watermark.md) |
+| Hotkeys panel | on | Floating status panel under the watermark: per-feature switch plus live key pill (ESP, Aimbot, Triggerbot), toggle in Settings → Menu |
 | Overlay attach | auto | `cs2.exe` + window title `Counter-Strike 2` |
 | Offset auto-update | auto | [Offsets](offsets.md) |
 | Map vis mesh | auto | Load `maps/tri/{map}.tri` on map name change |
+| Aimbot | hold-key, external mouse | [Combat](combat.md): FOV pick + sticky lock, per-weapon profiles, exponential smoothing, humanize (reaction, noise, overshoot, miss), RCS, FOV ring, debug log |
+| Triggerbot | hold-key, external mouse | [Combat](combat.md): Head / Chest / Body hitboxes, first/next/jitter delays, vis + scope + flash + weapon filters |
+| Weapon icons | on | Active-weapon glyph under the box, `weapon_icons::resolve` from designer name + item definition |
+| Configs | JSON v2 + presets | [Configs](configs.md): Save / Load / Delete / Default, one-click Legit, Legit with Aim, Semi Rage |
+| Team names | on | Teammate name in team color over the box, optional dimmed distance below |
+| Spectators | panel | Observer-target resolve, eye-header panel with hint when empty |
+| Hitmarker | center X | White normal / gold headshot, size + opacity + fade sliders |
+| Damage log | killfeed | Health-diff rows with zone dots, kill rows with weapon glyph, max + lifetime + anchor |
 
 ## Menu-only (not wired)
 
-These draw in Combat tabs and write `g_menu`, but no code path aims, shoots, or sends input.
+Only leftovers without runtime behind them:
 
 | Control | Fields |
 | --- | --- |
-| Aim enable / visible / recoil | `aim_enable`, `aim_visible`, `aim_recoil` |
-| Aim FOV / smooth / bone | `aim_fov`, `aim_smooth`, `aim_bone` (`Head`, `Neck`, `Chest`, `Pelvis`) |
-| Aim key | `aim_key`, `aim_key_mode` |
-| Trigger enable / delay | `trigger_enable`, `trigger_delay_ms` |
-| Trigger key | `trigger_key`, `trigger_key_mode` |
-
-The Combat pages show the text `Not wired yet — visuals first.`
+| Menu key | `menu_key`, `menu_key_mode` (overlay toggle stays Insert/F7) |
 
 ## Overlay chrome
 
@@ -55,10 +58,8 @@ Details: [Menu](menu.md).
 
 Documented as planned only. Do not assume they exist in `src/`.
 
-- Aimbot / triggerbot runtime
 - Chams / glow writing
 - Radar, world ESP, bomb ESP, spectator list
-- Config Save/Load (`config/settings.json` is a placeholder)
 - Sound ESP, third-person, exploits
 
 See [Roadmap](roadmap.md).

@@ -14,14 +14,17 @@ D:\CS2\
   README.md
   scripts/build.bat
   config/
-    settings.json            placeholder; not loaded
+    settings.json            legacy placeholder; live store is <config dir>/*.json
     offsets_cache.json       runtime (ETag + offsets_flat)
   maps/tri/*.tri             generated collision meshes
   cphys-extractor/           .NET 9 map dumper
   src/
     app/main.cpp             Win32 + DX11 + LianFlow + frame loop
     app/settings.hpp         MenuState, hit rects, globals
+    app/config.cpp|.hpp      ConfigStore JSON + presets
     features/esp.cpp|.hpp    draw_players, draw_watermark
+    features/combat.cpp|.hpp aimbot, triggerbot, weapon profiles
+    features/weapon_icons.cpp|.hpp active-weapon glyph resolve
     sdk/
       memory.cpp|.hpp        attach, RPM, module base
       game.cpp|.hpp          entity walk, view matrix, map, fps, ping, bones
@@ -36,7 +39,7 @@ D:\CS2\
   wikis/                     this documentation
 ```
 
-`CMakeLists.txt` compiles: `main.cpp`, `memory.cpp`, `game.cpp`, `vis.cpp`, `offset_update.cpp`, `esp.cpp`, plus ImGui / FreeType / DX11 backends. Links: `d3d11`, `d3dcompiler`, `dxgi`, `freetype`, `d3dx11`, `winmm`, `dwmapi`, `winhttp`. C++17, Unicode, `/utf-8 /W3 /MP`, x64 only.
+`CMakeLists.txt` compiles: `main.cpp`, `config.cpp`, `memory.cpp`, `game.cpp`, `vis.cpp`, `offset_update.cpp`, `esp.cpp`, `combat.cpp`, `weapon_icons.cpp`, plus ImGui / FreeType / DX11 backends. Links: `d3d11`, `d3dcompiler`, `dxgi`, `freetype`, `d3dx11`, `winmm`, `dwmapi`, `winhttp`. C++17, Unicode, `/utf-8 /W3 /MP`, x64 only.
 
 ## Layers
 
@@ -62,7 +65,8 @@ Insert/F7/ESC/F8
 set_passthrough(!menu_open)
 ImGui NewFrame
 draw_players(background)
-draw_watermark(background)
+combat_draw (FOV ring) + draw_watermark(background)
+combat_tick(Game, VisCheck, dt, menu_open)   aimbot + triggerbot via SendInput
 if menu anim > 0: LianFlow panel + collect g_hits
 Present(0, 0)
 ```
@@ -80,7 +84,8 @@ ESP does **not** interpolate box positions. Smoothing that path caused visible l
 - `attached_`, `build_number_`, `view_` (4×4)
 - `local_team_`, `local_origin_`, `local_head_`, `local_name_`, `local_ping_`, `fps_`
 - `map_name_`
-- `players_` (`Player`: controller/pawn, origin/head/eye, AABB corners, `joints`/`joint_mask`, health, team, distance, speed, ducked)
+- `players_` (`Player`: controller/pawn, origin/head/eye, AABB corners, `joints`/`joint_mask`, health, team, distance, speed, ducked, weapon def + icon glyph)
+- aim/trigger inputs: `view_angles_`, `punch_angles_`, `sensitivity_`, `shots_fired_`, `weapon_def_`, `camera_fov_`, `scoped_`, `flash_alpha_`, `local_alive_`
 
 Entity walk: controllers `1..64` through `CGameEntitySystem` (`kListOffset 0x10`, stride `0x70`, handle mask `0x7FFF`). Skip local, dead (`m_bPawnIsAlive` / `m_lifeState`), dormant.
 
@@ -111,9 +116,9 @@ Offset apply and vis swap are mutex / generation guarded. Do not read `offsets::
 | File | Used? |
 | --- | --- |
 | `config/offsets_cache.json` | Yes, offset poller |
-| `config/settings.json` | No. Placeholder JSON only |
+| `<config dir>/*.json` | Yes, `ConfigStore`: full `MenuState` + accent, version 2 |
 
-TODO: load/save `g_menu` and accent.
+Config dir resolves to `<exe>\configs` first, then the release / project fallbacks. Three in-memory presets (Legit, Legit with Aim, Semi Rage) apply without files. See [Configs](configs.md).
 
 ---
 

@@ -491,7 +491,8 @@ void draw_distance_label(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, float d
     dl->AddText(ImVec2(x, y), label, text);
 }
 
-void draw_player_name(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, const std::string& name, float alpha)
+void draw_player_name(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, const std::string& name, float alpha,
+                        ImU32 label_col = IM_COL32(235, 240, 246, 230))
 {
     if (name.empty() || alpha <= 0.01f)
         return;
@@ -502,8 +503,11 @@ void draw_player_name(ImDrawList* dl, ImVec2 box_min, ImVec2 box_max, const std:
     if (y < -size.y)
         return;
 
+    // Scale the caller-provided label color by alpha, keep its RGB.
+    const float base_a = ((label_col >> 24) & 255) / 255.f;
     const ImU32 shadow = IM_COL32(3, 5, 8, static_cast<int>(180.f * alpha));
-    const ImU32 label = IM_COL32(235, 240, 246, static_cast<int>(230.f * alpha));
+    const ImU32 label = (label_col & 0x00FFFFFF) |
+        (static_cast<ImU32>(std::clamp(base_a * alpha, 0.f, 1.f) * 255.f) << 24);
     dl->AddText(ImVec2(x + 1.f, y + 1.f), shadow, name.c_str());
     dl->AddText(ImVec2(x, y), label, name.c_str());
 }
@@ -544,8 +548,13 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
     const float corner_pct = std::clamp(g_menu.vis_corner / 100.f, 0.14f, 0.36f);
     const float max_dist_m = static_cast<float>(g_menu.vis_max_distance);
 
+    const ImU32 team_name_col = ImGui::ColorConvertFloat4ToU32(from_arr(g_menu.box_team));
+
     for (const Player& p : game.players()) {
-        if (g_menu.vis_team_check && p.team == game.local_team())
+        const bool teammate = p.team == game.local_team();
+        // Teammates draw with team colors when team names are on,
+        // even with "Enemies only" active. Otherwise the old rule holds.
+        if (teammate && !g_menu.vis_team_names && g_menu.vis_team_check)
             continue;
         const float distance_m = p.distance * 0.0254f;
         if (max_dist_m > 0.f && distance_m >= max_dist_m)
@@ -576,7 +585,6 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         const float alpha = dist_a * move_a * pulse;
         const float hp = (p.max_health > 0) ? (p.health / static_cast<float>(p.max_health)) : 0.f;
 
-        const bool teammate = p.team == game.local_team();
         const ImVec4 col = from_arr(teammate ? g_menu.box_team : g_menu.box_enemy);
         const ImVec4 head_col = from_arr(teammate ? g_menu.head_team : g_menu.head_enemy);
         const ImVec4 skeleton_col = from_arr(player_visible ? g_menu.skeleton_visible : g_menu.skeleton_hidden);
@@ -589,21 +597,25 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         else if (style == BoxStyle::Corner)
             draw_corner_box(dl, mn, mx, col, beam, glow, corner_pct, alpha);
 
+        // Teammates: name in team color over the box, optional dimmed
+        // distance below it. Same placement/size/gap as enemy layout.
+        // Health, head marker, and weapon icon stay enemy-only to keep
+        // team ESP quiet.
         if (!p.name.empty())
-            draw_player_name(dl, mn, mx, p.name, alpha);
+            draw_player_name(dl, mn, mx, p.name, alpha, teammate ? team_name_col : IM_COL32(235, 240, 246, 230));
 
         draw_skeleton(dl, p, game.view_matrix(), screen_w, screen_h, skeleton_col, alpha);
 
-        if (g_menu.vis_health)
+        if (!teammate && g_menu.vis_health)
             draw_health_bar(dl, mn, mx, hp, alpha, time_s);
 
-        if (g_menu.vis_distance)
-            draw_distance_label(dl, mn, mx, distance_m, alpha);
+        if ((!teammate && g_menu.vis_distance) || (teammate && g_menu.vis_team_distance))
+            draw_distance_label(dl, mn, mx, distance_m, teammate ? alpha * 0.75f : alpha);
 
-        if (g_menu.vis_weapon_icon && !p.weapon_icon_utf8.empty())
+        if (!teammate && g_menu.vis_weapon_icon && !p.weapon_icon_utf8.empty())
             draw_weapon_icon(dl, mn, mx, p.weapon_icon_utf8, alpha);
 
-        if (g_menu.vis_head) {
+        if (!teammate && g_menu.vis_head) {
             const Vec3 head_anchor = p.eye + (p.head - p.eye) * 0.45f;
             Vec2 head_screen{};
             if (world_to_screen(head_anchor, game.view_matrix(), screen_w, screen_h, head_screen)) {

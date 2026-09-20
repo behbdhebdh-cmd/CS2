@@ -9,19 +9,13 @@ Only items that already have UI, types, or an explicit gap in this tree. Anythin
 | Item | Where |
 | --- | --- |
 | Skeleton ESP | [ESP](esp.md#skeleton-esp) — logical joints, layout scoring, geometric fallback |
+| Aimbot | [Combat](combat.md) — hold-key, FOV + sticky pick, per-weapon profiles, smoothing, humanize, RCS, FOV ring, debug log |
+| Aim yaw-sign fix | `combat.cpp`: `dx` uses `-delta.yaw`; the old `+delta.yaw` mirrored horizontally off target |
+| Triggerbot | [Combat](combat.md) — hitbox angular test, first/next/jitter timing, vis + scope + flash + weapon filters |
+| Weapon icons | ESP draws the live weapon glyph per player |
+| Config Save/Load + presets | [Configs](configs.md) — JSON v2, Legit / Legit with Aim / Semi Rage |
 
-## UI exists, runtime does not
-
-Combat tab widgets write `g_menu` and show `Not wired yet — visuals first.`
-
-| Item | Fields today | Missing |
-| --- | --- | --- |
-| Aimbot | `aim_enable`, `aim_visible`, `aim_recoil`, `aim_fov`, `aim_smooth`, `aim_bone`, `aim_key`, `aim_key_mode` | Angle write or mouse move; use resolved `Skel` (already on `Player`); FOV check; recoil source |
-| Triggerbot | `trigger_enable`, `trigger_delay_ms`, `trigger_key`, `trigger_key_mode` | Crosshair / vis test; `attack` button or mouse; delay timer |
-
-`offsets.hpp` already has `dwViewAngles` and `dwCSGOInput`; `game.cpp` does not read them yet.
-
-This overlay is **read-only** RPM today. Any aim/trigger design must state whether it stays external (mouse) or starts writing memory. TODO: choose that before implementing.
+Aim and trigger stay external (`SendInput` mouse). Reads remain read-only RPM; nothing writes game memory.
 
 ## Not started (named because they are commonly next)
 
@@ -30,7 +24,6 @@ This overlay is **read-only** RPM today. Any aim/trigger design must state wheth
 | Chams | No material/hook/write path. TODO |
 | Glow | `dwGlowManager` is in the offset table only. TODO |
 | Radar | Removed from the current tab list (older `docs/UI.md` still mentions it). TODO |
-| Config Save/Load | `config/settings.json` placeholder; no code. TODO |
 | Menu keybind widget | `menu_key` on `MenuState` unused; toggle is Insert/F7. TODO |
 | Offset vs engine build banner | `build_number()` is read but not drawn. TODO |
 | World / bomb / weapon ESP | `dwPlantedC4` unused. TODO |
@@ -44,9 +37,9 @@ This overlay is **read-only** RPM today. Any aim/trigger design must state wheth
 
 ## Suggested order (not a schedule)
 
-1. Persist `g_menu` + accent to JSON.
-2. Surface offset/engine build on Settings or watermark.
-3. Only then Combat, with a written input method. Aim can reuse `Player::joints` / `Skel::Head`.
+1. Surface offset/engine build on Settings or watermark.
+2. Round out ESP (bomb, world, names) before new input tricks.
+3. Only then consider anything that writes game memory; external mouse covers aim + trigger today.
 
 ---
 

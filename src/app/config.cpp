@@ -354,6 +354,30 @@ bool ConfigStore::save(const std::string& name)
     json_int(o, "vis_corner", g_menu.vis_corner);
     json_int(o, "vis_max_distance", g_menu.vis_max_distance);
     json_bool(o, "misc_watermark", g_menu.misc_watermark);
+    json_bool(o, "misc_hotkeys", g_menu.misc_hotkeys);
+    json_bool(o, "vis_team_names", g_menu.vis_team_names);
+    json_bool(o, "vis_team_distance", g_menu.vis_team_distance);
+    json_bool(o, "spec_enable", g_menu.spec_enable);
+    json_int(o, "spec_anchor", g_menu.spec_anchor);
+    json_int(o, "spec_off_x", g_menu.spec_off_x);
+    json_int(o, "spec_off_y", g_menu.spec_off_y);
+    json_bool(o, "hit_enable", g_menu.hit_enable);
+    json_int(o, "hit_size", g_menu.hit_size);
+    json_int(o, "hit_thick", g_menu.hit_thick);
+    json_float(o, "hit_alpha", g_menu.hit_alpha);
+    json_int(o, "hit_time", g_menu.hit_time);
+    json_vec4(o, "hit_normal", g_menu.hit_normal);
+    json_vec4(o, "hit_head", g_menu.hit_head);
+    json_bool(o, "hitlog_enable", g_menu.hitlog_enable);
+    json_int(o, "hitlog_max", g_menu.hitlog_max);
+    json_float(o, "hitlog_time", g_menu.hitlog_time);
+    json_int(o, "hitlog_anchor", g_menu.hitlog_anchor);
+    json_int(o, "hitlog_off_x", g_menu.hitlog_off_x);
+    json_int(o, "hitlog_off_y", g_menu.hitlog_off_y);
+    json_bool(o, "hitlog_kill_icon", g_menu.hitlog_kill_icon);
+    json_vec4(o, "hitlog_head", g_menu.hitlog_head);
+    json_vec4(o, "hitlog_chest", g_menu.hitlog_chest);
+    json_vec4(o, "hitlog_body", g_menu.hitlog_body);
     json_bool(o, "aim_enable", g_menu.aim_enable);
     json_bool(o, "aim_visible", g_menu.aim_visible);
     json_bool(o, "aim_recoil", g_menu.aim_recoil);
@@ -383,6 +407,7 @@ bool ConfigStore::save(const std::string& name)
     json_float(o, "aim_noise", g_menu.aim_noise);
     json_float(o, "aim_overshoot", g_menu.aim_overshoot);
     json_float(o, "aim_miss", g_menu.aim_miss);
+    json_bool(o, "aim_debug", g_menu.aim_debug);
     json_bool(o, "trigger_enable", g_menu.trigger_enable);
     json_bool(o, "trigger_visible", g_menu.trigger_visible);
     json_bool(o, "trigger_team_check", g_menu.trigger_team_check);
@@ -483,6 +508,30 @@ bool ConfigStore::load(const std::string& name)
     i("vis_corner", next.vis_corner, 16, 42);
     i("vis_max_distance", next.vis_max_distance, 20, 400);
     b("misc_watermark", next.misc_watermark);
+    b("misc_hotkeys", next.misc_hotkeys);
+    b("vis_team_names", next.vis_team_names);
+    b("vis_team_distance", next.vis_team_distance);
+    b("spec_enable", next.spec_enable);
+    i("spec_anchor", next.spec_anchor, 0, 3);
+    i("spec_off_x", next.spec_off_x, -400, 400);
+    i("spec_off_y", next.spec_off_y, -400, 400);
+    b("hit_enable", next.hit_enable);
+    i("hit_size", next.hit_size, 6, 20);
+    i("hit_thick", next.hit_thick, 1, 5);
+    f("hit_alpha", next.hit_alpha, 0.2f, 1.f);
+    i("hit_time", next.hit_time, 150, 500);
+    c4("hit_normal", next.hit_normal);
+    c4("hit_head", next.hit_head);
+    b("hitlog_enable", next.hitlog_enable);
+    i("hitlog_max", next.hitlog_max, 1, 8);
+    f("hitlog_time", next.hitlog_time, 2.f, 8.f);
+    i("hitlog_anchor", next.hitlog_anchor, 0, 3);
+    i("hitlog_off_x", next.hitlog_off_x, -400, 400);
+    i("hitlog_off_y", next.hitlog_off_y, -400, 400);
+    b("hitlog_kill_icon", next.hitlog_kill_icon);
+    c4("hitlog_head", next.hitlog_head);
+    c4("hitlog_chest", next.hitlog_chest);
+    c4("hitlog_body", next.hitlog_body);
     b("aim_enable", next.aim_enable);
     b("aim_visible", next.aim_visible);
     b("aim_recoil", next.aim_recoil);
@@ -513,6 +562,7 @@ bool ConfigStore::load(const std::string& name)
     f("aim_noise", next.aim_noise, 0.f, 1.f);
     f("aim_overshoot", next.aim_overshoot, 0.f, 1.f);
     f("aim_miss", next.aim_miss, 0.f, 0.25f);
+    b("aim_debug", next.aim_debug);
     if (!got_rifle) {
         float old_fov = 0.f;
         if (read_float(json, "aim_fov", old_fov, 0.5f, 30.f)) {
@@ -594,4 +644,105 @@ void ConfigStore::reset_defaults()
     apply_accent(g_menu.accent);
     last_loaded_.clear();
     log("reset · defaults");
+}
+
+const char* ConfigStore::preset_label(int id)
+{
+    switch (id) {
+    case 0: return "Legit";
+    case 1: return "Legit with Aim";
+    case 2: return "Semi Rage";
+    default: return "?";
+    }
+}
+
+// Ein-Klick-Presets: nur Combat/Trigger/Humanize/RCS, Visuals & Farben bleiben.
+// Keys werden bewusst nicht ueberschrieben.
+bool ConfigStore::apply_preset(int id)
+{
+    if (id < 0 || id >= preset_count()) {
+        log("preset failed · bad id %d", id);
+        return false;
+    }
+
+    if (id == 0) { // Legit: kleiner FOV, viel Smooth, Humanize an, RCS aus/minimal
+        g_menu.aim_enable = true;
+        g_menu.aim_visible = true;
+        g_menu.aim_team_check = true;
+        g_menu.aim_fov_draw = true;
+        g_menu.aim_humanize = true;
+        g_menu.aim_recoil = false;
+        g_menu.aim_rifle = { 2.0f, 0.82f, 0, 0.f, 0.f };
+        g_menu.aim_pistol = { 1.6f, 0.82f, 0, 0.f, 0.f };
+        g_menu.aim_sniper = { 1.4f, 0.78f, 0, 0.f, 0.f };
+        g_menu.aim_reaction_min = 90.f;
+        g_menu.aim_reaction_max = 180.f;
+        g_menu.aim_noise = 0.22f;
+        g_menu.aim_overshoot = 0.14f;
+        g_menu.aim_miss = 0.04f;
+        g_menu.trigger_enable = false;
+        g_menu.trigger_visible = true;
+        g_menu.trigger_team_check = true;
+        g_menu.trigger_scope = true;
+        g_menu.trigger_flash = true;
+        g_menu.trigger_weapon_filter = true;
+        g_menu.trigger_hitbox = 0;
+        g_menu.trigger_first_ms = 80;
+        g_menu.trigger_next_ms = 170;
+        g_menu.trigger_jitter_ms = 20;
+    } else if (id == 1) { // Legit with Aim: moderat, RCS an, Aim + Trigger an
+        g_menu.aim_enable = true;
+        g_menu.aim_visible = true;
+        g_menu.aim_team_check = true;
+        g_menu.aim_fov_draw = true;
+        g_menu.aim_humanize = true;
+        g_menu.aim_recoil = true;
+        g_menu.aim_rifle = { 4.0f, 0.55f, 0, 2.0f, 2.0f };
+        g_menu.aim_pistol = { 3.0f, 0.50f, 0, 1.5f, 1.5f };
+        g_menu.aim_sniper = { 2.5f, 0.35f, 0, 1.0f, 1.0f };
+        g_menu.aim_reaction_min = 60.f;
+        g_menu.aim_reaction_max = 130.f;
+        g_menu.aim_noise = 0.16f;
+        g_menu.aim_overshoot = 0.10f;
+        g_menu.aim_miss = 0.02f;
+        g_menu.trigger_enable = true;
+        g_menu.trigger_visible = true;
+        g_menu.trigger_team_check = true;
+        g_menu.trigger_scope = true;
+        g_menu.trigger_flash = true;
+        g_menu.trigger_weapon_filter = true;
+        g_menu.trigger_hitbox = 0;
+        g_menu.trigger_first_ms = 70;
+        g_menu.trigger_next_ms = 150;
+        g_menu.trigger_jitter_ms = 18;
+    } else { // Semi Rage: grosser FOV, kaum Smooth, RCS aggressiv, Trigger minimal
+        g_menu.aim_enable = true;
+        g_menu.aim_visible = true; // Vis-Check priorisiert
+        g_menu.aim_team_check = true;
+        g_menu.aim_fov_draw = true;
+        g_menu.aim_humanize = false;
+        g_menu.aim_recoil = true;
+        g_menu.aim_rifle = { 10.0f, 0.05f, 0, 2.5f, 2.5f };
+        g_menu.aim_pistol = { 8.0f, 0.05f, 0, 2.5f, 2.5f };
+        g_menu.aim_sniper = { 7.0f, 0.05f, 0, 2.5f, 2.5f };
+        g_menu.aim_reaction_min = 0.f;
+        g_menu.aim_reaction_max = 25.f;
+        g_menu.aim_noise = 0.05f;
+        g_menu.aim_overshoot = 0.f;
+        g_menu.aim_miss = 0.f;
+        g_menu.trigger_enable = true;
+        g_menu.trigger_visible = true; // Vis-Check priorisiert
+        g_menu.trigger_team_check = true;
+        g_menu.trigger_scope = false;
+        g_menu.trigger_flash = false;
+        g_menu.trigger_weapon_filter = false;
+        g_menu.trigger_hitbox = 2; // Body
+        g_menu.trigger_first_ms = 12;
+        g_menu.trigger_next_ms = 45;
+        g_menu.trigger_jitter_ms = 6;
+    }
+
+    last_loaded_.clear();
+    log("preset · %s applied", preset_label(id));
+    return true;
 }

@@ -104,6 +104,12 @@ namespace schema {
         inline std::ptrdiff_t m_pCameraServices = 0x1240;
         inline std::ptrdiff_t m_vOldOrigin      = 0x13B8;
         inline std::ptrdiff_t m_hController     = 0x13D0;
+        inline std::ptrdiff_t m_pObserverServices = 0x1290;
+    }
+
+    namespace CPlayer_ObserverServices {
+        inline std::ptrdiff_t m_iObserverMode  = 0x40;
+        inline std::ptrdiff_t m_hObserverTarget = 0x44;
     }
 
     namespace C_CSPlayerPawnBase {

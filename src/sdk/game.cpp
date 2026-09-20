@@ -45,6 +45,29 @@ uintptr_t bone_array_from_skeleton(const Memory& mem, uintptr_t skeleton)
     return plausible_pointer(array) ? array : 0;
 }
 
+std::string controller_name(const Memory& mem, uintptr_t controller)
+{
+    char raw[128]{};
+    mem.read_raw(controller + offsets::schema::CBasePlayerController::m_iszPlayerName,
+                 raw, sizeof(raw) - 1);
+    raw[sizeof(raw) - 1] = 0;
+    std::string name = raw;
+    if (name.empty()) {
+        const uintptr_t sp = mem.read<uintptr_t>(
+            controller + offsets::schema::CCSPlayerController::m_sSanitizedPlayerName);
+        if (sp) {
+            char buf[64]{};
+            mem.read_raw(sp, buf, sizeof(buf) - 1);
+            name = buf;
+        }
+    }
+    while (!name.empty() && static_cast<unsigned char>(name.back()) < 32)
+        name.pop_back();
+    if (name.empty() || name[0] < 32)
+        return {};
+    return name;
+}
+
 } // namespace
 
 uintptr_t Game::entity_by_index(int index) const
@@ -128,6 +151,7 @@ uintptr_t Game::pawn_from_handle(uint32_t handle) const
 bool Game::tick(bool read_bones)
 {
     players_.clear();
+    spectators_.clear();
 
     const DWORD now = GetTickCount();
     if (!attached_ || !mem_.ok()) {
@@ -208,6 +232,7 @@ bool Game::tick(bool read_bones)
     }
 
     const uintptr_t local_pawn = mem_.read<uintptr_t>(client_ + offsets::client::dwLocalPlayerPawn);
+    local_pawn_ = local_pawn;
     const uintptr_t local_controller = mem_.read<uintptr_t>(client_ + offsets::client::dwLocalPlayerController);
     local_team_ = local_pawn ? static_cast<int>(mem_.read<uint8_t>(local_pawn + offsets::schema::C_BaseEntity::m_iTeamNum)) : 0;
 
@@ -360,8 +385,30 @@ bool Game::tick(bool read_bones)
         if (!controller || controller == local_controller)
             continue;
 
-        if (!mem_.read<bool>(controller + offsets::schema::CCSPlayerController::m_bPawnIsAlive))
+        if (!mem_.read<bool>(controller + offsets::schema::CCSPlayerController::m_bPawnIsAlive)) {
+            // Dead controller: may be spectating. Keep it if the observer
+            // target resolves to the local pawn (offsets auto-update via API,
+            // baked values are the fallback; unknown target means no entry).
+            if (local_pawn_) {
+                const uint32_t dead_handle = mem_.read<uint32_t>(
+                    controller + offsets::schema::CCSPlayerController::m_hPlayerPawn);
+                const uintptr_t dead_pawn = pawn_from_handle(dead_handle);
+                if (dead_pawn) {
+                    const uintptr_t obs = mem_.read<uintptr_t>(
+                        dead_pawn + offsets::schema::C_BasePlayerPawn::m_pObserverServices);
+                    if (obs) {
+                        const uint32_t tgt = mem_.read<uint32_t>(
+                            obs + offsets::schema::CPlayer_ObserverServices::m_hObserverTarget);
+                        if (tgt && tgt != 0xFFFFFFFF && pawn_from_handle(tgt) == local_pawn_) {
+                            const std::string sname = controller_name(mem_, controller);
+                            if (!sname.empty() && spectators_.size() < 10)
+                                spectators_.push_back(sname);
+                        }
+                    }
+                }
+            }
             continue;
+        }
 
         const uint32_t pawn_handle = mem_.read<uint32_t>(controller + offsets::schema::CCSPlayerController::m_hPlayerPawn);
         const uintptr_t pawn = pawn_from_handle(pawn_handle);

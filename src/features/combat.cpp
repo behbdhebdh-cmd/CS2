@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <random>
 
 namespace {
@@ -252,6 +253,74 @@ void ou_step(float& x, float dt, float theta, float sigma)
     x = clampf(x, -1.6f, 1.6f);
 }
 
+const char* skel_dbg_name(Skel b)
+{
+    switch (b) {
+    case Skel::Head: return "Head";
+    case Skel::Neck: return "Neck";
+    case Skel::SpineUpper: return "SpineUpper";
+    case Skel::SpineLower: return "SpineLower";
+    default: return "Unknown";
+    }
+}
+
+// Throttled aim debug log: eye, bone world, want/view angles, delta pre/post
+// smooth, sensitivity, resulting mouse deltas + view-matrix sanity.
+// Aim path is angle-based (calc_angle -> angle_delta -> SendInput); world_to_screen
+// is NOT used for aiming (only ESP), so a W2S error cannot explain away-aim.
+// Log goes to OutputDebugString + configs/aim_debug.log when g_menu.aim_debug is on.
+void aim_debug_log(const Game& game, const Vec3& eye, const Vec3& world, Skel bone,
+                   const Vec3& want, const Vec3& view, const Vec3& delta_raw,
+                   const Vec3& delta_applied, float smooth_a, float sens,
+                   int mx, int my, float fov, bool force)
+{
+    if (!g_menu.aim_debug)
+        return;
+    const ULONGLONG t = now_ms();
+    static ULONGLONG last = 0;
+    if (!force && t - last < 150)
+        return;
+    last = t;
+
+    const Mat4x4& vm = game.view_matrix();
+    bool vm_ok = true;
+    for (int r = 0; r < 4 && vm_ok; ++r)
+        for (int c = 0; c < 4 && vm_ok; ++c)
+            if (!std::isfinite(vm.m[r][c]))
+                vm_ok = false;
+
+    char line[768]{};
+    std::snprintf(line, sizeof(line),
+        "[aim] bone=%s eye=(%.1f,%.1f,%.1f) world=(%.1f,%.1f,%.1f) "
+        "view=(p %.2f y %.2f) want=(p %.2f y %.2f) "
+        "dRaw=(p %.3f y %.3f) dSm=(p %.3f y %.3f a=%.3f) "
+        "fov=%.2f sens=%.3f mouse=(%d,%d) vm=%s",
+        skel_dbg_name(bone),
+        eye.x, eye.y, eye.z, world.x, world.y, world.z,
+        view.x, view.y, want.x, want.y,
+        delta_raw.x, delta_raw.y, delta_applied.x, delta_applied.y, smooth_a,
+        fov, sens, mx, my, vm_ok ? "ok" : "NAN");
+    OutputDebugStringA(line);
+    OutputDebugStringA("\n");
+
+    static FILE* fp = nullptr;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        fopen_s(&fp, "D:\\CS2\\configs\\aim_debug.log", "a");
+        if (fp) {
+            std::fprintf(fp, "--- aim debug session ---\n");
+            std::fflush(fp);
+        }
+    } else if (!fp) {
+        fopen_s(&fp, "D:\\CS2\\configs\\aim_debug.log", "a");
+    }
+    if (fp) {
+        std::fprintf(fp, "%s\n", line);
+        std::fflush(fp);
+    }
+}
+
 bool pick_target(const Game& game, const VisCheck& vis, const CombatProfile& prof,
                  bool vis_only, bool team_check, uintptr_t sticky, Skel sticky_bone,
                  const Player*& out_p, Skel& out_bone, float& out_fov)
@@ -411,21 +480,31 @@ void run_aim(const Game& game, const VisCheck& vis, const CombatProfile& prof, f
     }
     normalize_angles(want);
 
-    Vec3 delta = angle_delta(game.view_angles(), want);
+    const Vec3 view_now = game.view_angles();
+    const Vec3 delta_raw = angle_delta(view_now, want);
+    Vec3 delta = delta_raw;
+    float smooth_a = 1.f;
     const float smooth = clampf(prof.smooth, 0.f, 1.f);
     if (smooth > 0.02f) {
         const float tau = 0.035f + smooth * 0.20f;
-        const float a = 1.f - std::exp(-dt / tau);
-        delta.x *= a;
-        delta.y *= a;
+        smooth_a = 1.f - std::exp(-dt / tau);
+        delta.x *= smooth_a;
+        delta.y *= smooth_a;
     }
 
     float sens = game.sensitivity();
     if (sens < 0.05f)
         sens = 1.f;
-    constexpr float kYaw = 0.022f;
-    g_aim.acc_x += delta.y / (sens * kYaw);
-    g_aim.acc_y += delta.x / (sens * kYaw);
+    // Source engine mouse mapping (in_mouse.cpp):
+    //   view.yaw   -= m_yaw   * dx   (mouse right -> yaw decreases / turn right)
+    //   view.pitch += m_pitch * dy   (mouse down -> pitch increases / look down)
+    // Delta here is (want - view), so the correct pixel conversion is:
+    //   dx = -delta.yaw / (sens * m_yaw), dy = +delta.pitch / (sens * m_pitch).
+    // BUG WAS: dx used +delta.yaw (missing minus) -> horizontal spiegelung,
+    // der Aim lief seitlich vom Gegner weg statt drauf.
+    constexpr float kMouse = 0.022f; // m_yaw == m_pitch == 0.022 default
+    g_aim.acc_x -= delta.y / (sens * kMouse); // yaw: negiert (Fix)
+    g_aim.acc_y += delta.x / (sens * kMouse); // pitch: positiv (war korrekt)
 
     int mx = static_cast<int>(g_aim.acc_x);
     int my = static_cast<int>(g_aim.acc_y);
@@ -433,9 +512,11 @@ void run_aim(const Game& game, const VisCheck& vis, const CombatProfile& prof, f
     g_aim.acc_y -= static_cast<float>(my);
 
     const int cap = 28 + static_cast<int>((1.f - smooth) * 36.f);
-    mx = std::clamp(mx, -cap, cap);
-    my = std::clamp(my, -cap, cap);
-    mouse_move(mx, my);
+    const int mx_capped = std::clamp(mx, -cap, cap);
+    const int my_capped = std::clamp(my, -cap, cap);
+    aim_debug_log(game, game.local_head(), world, g_aim.bone, want, view_now,
+                  delta_raw, delta, smooth_a, sens, mx_capped, my_capped, fov, false);
+    mouse_move(mx_capped, my_capped);
 }
 
 float hitbox_radius(Skel bone)
@@ -593,6 +674,16 @@ const CombatProfile& combat_active_profile(const Game& game)
     case WpnClass::Sniper: return g_menu.aim_sniper;
     default: return g_menu.aim_rifle;
     }
+}
+
+uintptr_t combat_aim_pawn()
+{
+    return g_aim.pawn;
+}
+
+int combat_aim_bone()
+{
+    return g_aim.pawn ? static_cast<int>(g_aim.bone) : -1;
 }
 
 void combat_tick(const Game& game, const VisCheck& vis, float dt, bool menu_open)

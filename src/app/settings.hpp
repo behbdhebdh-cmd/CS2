@@ -70,6 +70,7 @@ struct MenuState {
     float aim_noise = 0.18f;
     float aim_overshoot = 0.12f;
     float aim_miss = 0.03f;
+    bool aim_debug = false;
 
     bool trigger_enable = false;
     bool trigger_visible = true;
@@ -103,6 +104,36 @@ struct MenuState {
     int  vis_max_distance = 220;
 
     bool misc_watermark = true;
+    bool misc_hotkeys = true;
+
+    // Team ESP + spectator panel
+    bool vis_team_names = true;
+    bool vis_team_distance = true;
+    bool spec_enable = true;
+    int  spec_anchor = 0; // 0 TR, 1 TL, 2 BL, 3 BR
+    int  spec_off_x = 0;
+    int  spec_off_y = 0;
+
+    // Hitmarker
+    bool hit_enable = true;
+    int  hit_size = 14;      // half-length px, 6..20
+    int  hit_thick = 3;      // line px, 1..5
+    float hit_alpha = 1.f;   // 0.2..1
+    int  hit_time = 300;     // ms, 150..500
+    float hit_normal[4] = { 1.f, 1.f, 1.f, 1.f };
+    float hit_head[4] = { 0.98f, 0.72f, 0.30f, 1.f };
+
+    // Damage log
+    bool hitlog_enable = true;
+    int  hitlog_max = 5;       // 1..8
+    float hitlog_time = 4.f;   // s, 2..8
+    int  hitlog_anchor = 3;    // 0 TR, 1 TL, 2 BL, 3 BR
+    int  hitlog_off_x = 0;
+    int  hitlog_off_y = 0;
+    bool hitlog_kill_icon = true;
+    float hitlog_head[4] = { 0.95f, 0.75f, 0.35f, 1.f };
+    float hitlog_chest[4] = { 0.98f, 0.54f, 0.30f, 1.f };
+    float hitlog_body[4] = { 0.55f, 0.78f, 0.92f, 1.f };
 
     int trigger_hitbox = static_cast<int>(TriggerHitbox::Head);
     int trigger_first_ms = 70;

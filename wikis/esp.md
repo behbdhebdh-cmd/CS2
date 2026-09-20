@@ -64,6 +64,10 @@ Enabled with **Head marker**. Projects `p.eye + (p.head - p.eye) * 0.45f`.
 
 **Distance** draws `{N}m` centered under the box, or above it if the label would leave the display. Uses the same alpha as the box.
 
+## Weapon icons
+
+**Weapon icon** draws the enemy's active weapon as a glyph under the box (below the distance label when that is on). `weapon_icons::resolve` maps the designer's class string plus `m_iItemDefinitionIndex` to a codepoint in the vendored `obs_icons` font; size comes from **Icon size** (10–32), color from **Weapon icon** in the Color child. Unknown classes resolve to empty and draw nothing, so a missing glyph never leaves a hole in the layout.
+
 ## Visible check
 
 **Visible only** (`vis_visible_only`) is applied only when `VisCheck::ready()` is true. If the mesh is missing or still loading, the filter is **off** (players are not hidden).
@@ -116,6 +120,7 @@ Visuals → Color, `custom::ColorEdit4` with `picker_flags` (`NoSidePreview | Al
 | Head team | `head_team` | light blue |
 | Skeleton visible | `skeleton_visible` | mint |
 | Skeleton hidden | `skeleton_hidden` | rose |
+| Weapon icon | `weapon_icon_color` | near-white |
 
 Accent for the **menu** is separate (`c::main_color`). See [Menu](menu.md).
 

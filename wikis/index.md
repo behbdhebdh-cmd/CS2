@@ -11,8 +11,11 @@ This wiki is the developer documentation. Project files are English. Do not trea
 | Page | Contents |
 | --- | --- |
 | [Getting started](getting-started.md) | Install, build, start, private bot match |
-| [Features](features.md) | Implemented vs UI-only vs not started |
-| [ESP](esp.md) | Box, health, head, distance, **skeleton**, vis check, filters, colors |
+| [Features](features.md) | What works, what is still UI-only, what is not started |
+| [ESP](esp.md) | Box, health, head, distance, **skeleton**, weapon icons, vis check, filters, colors |
+| [Combat](combat.md) | Aimbot math, smoothing, RCS, profiles, triggerbot timing |
+| [Configs](configs.md) | JSON store, presets, tab layout |
+| [Misc](misc.md) | Team names, spectators, hitmarker, damage log |
 | [Menu](menu.md) | LianFlow UI, open/close animation, keybinds, color pickers |
 | [Watermark](watermark.md) | Status bar: FPS, ping, session time, region, name |
 | [Offsets](offsets.md) | CheatOffsets poller, ETag, cache, apply path |
@@ -33,14 +36,19 @@ This wiki is the developer documentation. Project files are English. Do not trea
 | Skeleton | Logical `Skel` joints; layout score + geometric resolve; vis-colored lines |
 | Visibility | BVH raycast against `maps/tri/{map}.tri` |
 | Offsets | Auto-poll CheatOffsets API every 10 minutes (ETag) |
-| Aim / trigger | Menu controls only, not wired to game input |
-| Config JSON | `config/settings.json` is a placeholder; Save/Load is not wired |
+| Aim / trigger | Wired via `SendInput`: hold-to-aim with FOV, smoothing, humanize, RCS; triggerbot with hitbox + delay timing ([Combat](combat.md)) |
+| Weapon icons | ESP draws the active weapon glyph under the box |
+| Configs | Version-2 JSON Save/Load plus one-click presets: Legit, Legit with Aim, Semi Rage ([Configs](configs.md)) |
+| Misc | Team names over teammate boxes, spectator panel, center hitmarker, damage-log killfeed ([Misc](misc.md)) |
 
 ## Quick links (source)
 
 - Overlay entry: [`src/app/main.cpp`](../src/app/main.cpp)
 - Menu state: [`src/app/settings.hpp`](../src/app/settings.hpp)
 - ESP + watermark: [`src/features/esp.cpp`](../src/features/esp.cpp)
+- Combat: [`src/features/combat.cpp`](../src/features/combat.cpp)
+- Config store: [`src/app/config.cpp`](../src/app/config.cpp)
+- Weapon icons: [`src/features/weapon_icons.cpp`](../src/features/weapon_icons.cpp)
 - Skeleton resolve: [`src/sdk/skeleton.hpp`](../src/sdk/skeleton.hpp)
 - Game read: [`src/sdk/game.cpp`](../src/sdk/game.cpp)
 - Offset poller: [`src/sdk/offset_update/README.md`](../src/sdk/offset_update/README.md)

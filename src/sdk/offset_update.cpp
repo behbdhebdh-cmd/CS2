@@ -561,6 +561,13 @@ void OffsetUpdate::apply_flat(const std::unordered_map<std::string, std::ptrdiff
                    { "c_baseplayerpawn.m_pcameraservices", "m_pcameraservices" });
     n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_vOldOrigin, { "c_baseplayerpawn.m_voldorigin", "m_voldorigin" });
     n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_hController, { "c_baseplayerpawn.m_hcontroller", "m_hcontroller" });
+    n += apply_one(flat, offsets::schema::C_BasePlayerPawn::m_pObserverServices,
+                   { "c_baseplayerpawn.m_pobserverservices", "m_pobserverservices" });
+
+    n += apply_one(flat, offsets::schema::CPlayer_ObserverServices::m_iObserverMode,
+                   { "cplayer_observerservices.m_iobservermode", "m_iobservermode" });
+    n += apply_one(flat, offsets::schema::CPlayer_ObserverServices::m_hObserverTarget,
+                   { "cplayer_observerservices.m_hobservertarget", "m_hobservertarget" });
 
     n += apply_one(flat, offsets::schema::C_CSPlayerPawnBase::m_flFlashOverlayAlpha,
                    { "c_csplayerpawnbase.m_flflashoverlayalpha", "m_flflashoverlayalpha" });
