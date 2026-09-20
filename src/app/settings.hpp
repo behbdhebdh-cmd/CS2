@@ -17,6 +17,18 @@ enum class HeadMarkerStyle {
     Box = 2,
 };
 
+enum class SkeletonBodyMode {
+    Head = 0,
+    Upper = 1,
+    Full = 2,
+};
+
+enum class SkeletonStyle {
+    Lines = 0,
+    Points = 1,
+    LinesAndPoints = 2,
+};
+
 struct MenuState {
     bool aim_enable = false;
     bool aim_visible = true;
@@ -32,6 +44,10 @@ struct MenuState {
     bool vis_head = true;
     int  vis_head_style = static_cast<int>(HeadMarkerStyle::Circle);
     int  vis_head_size = 10;
+    bool vis_skeleton = true;
+    int  vis_skeleton_mode = static_cast<int>(SkeletonBodyMode::Full);
+    int  vis_skeleton_style = static_cast<int>(SkeletonStyle::LinesAndPoints);
+    int  vis_skeleton_thickness = 12; // 0.1 px units
     bool vis_team_check = true;
     bool vis_visible_only = true;
     bool vis_distance = true;
@@ -62,6 +78,8 @@ struct MenuState {
     float health_high[4] = { 0.28f, 0.84f, 0.42f, 1.f };
     float head_enemy[4]  = { 0.98f, 0.54f, 0.30f, 0.96f };
     float head_team[4]   = { 0.55f, 0.78f, 0.92f, 0.82f };
+    float skeleton_visible[4] = { 0.48f, 0.90f, 0.72f, 0.94f };
+    float skeleton_hidden[4]  = { 0.94f, 0.43f, 0.46f, 0.78f };
 };
 
 inline MenuState g_menu;

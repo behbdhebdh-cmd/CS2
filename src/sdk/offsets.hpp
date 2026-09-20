@@ -58,6 +58,7 @@ namespace entity_system {
 
 namespace schema {
     namespace C_BaseEntity {
+        inline std::ptrdiff_t m_CBodyComponent = 0x30;
         inline std::ptrdiff_t m_pGameSceneNode = 0x330;
         inline std::ptrdiff_t m_pCollision     = 0x340;
         inline std::ptrdiff_t m_iMaxHealth     = 0x348;
@@ -72,6 +73,20 @@ namespace schema {
     namespace CGameSceneNode {
         inline std::ptrdiff_t m_vecAbsOrigin = 0xC8;
         inline std::ptrdiff_t m_bDormant     = 0x103;
+    }
+
+    namespace CSkeletonInstance {
+        // a2x/cs2-dumper 2026-09-10: 0x140 (older dumps used 0x160/0x190).
+        inline std::ptrdiff_t m_modelState = 0x140;
+    }
+
+    namespace CModelState {
+        // Undocumented bone-cache pointer inside CModelState. Not a schema field.
+        constexpr std::ptrdiff_t m_boneArray = 0x80;
+    }
+
+    namespace CBodyComponentSkeletonInstance {
+        inline std::ptrdiff_t m_skeletonInstance = 0x80;
     }
 
     namespace C_BaseModelEntity {
@@ -112,6 +127,11 @@ namespace life {
 
 namespace flags {
     constexpr std::uint32_t FL_DUCKING = 1u << 1;
+}
+
+namespace skeleton {
+    constexpr int kBoneCount = 96;
+    constexpr std::ptrdiff_t kBoneStride = 0x20;
 }
 
 } // namespace offsets

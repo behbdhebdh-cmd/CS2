@@ -1,5 +1,7 @@
 # CS2
 
+**Wiki:** [wikis/index.md](wikis/index.md) — getting started, ESP, menu, offsets, architecture, build, troubleshooting.
+
 Private bot-match overlay for a personal CS2 HVH server.
 
 ## Status
@@ -72,6 +74,7 @@ Field meanings: [`docs/OFFSETS.md`](docs/OFFSETS.md)
 ```
 CS2/
   README.md
+  wikis/                    developer wiki (start at wikis/index.md)
   CMakeLists.txt
   config/
     settings.json

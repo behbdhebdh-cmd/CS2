@@ -2,6 +2,7 @@
 
 #include "sdk/math.hpp"
 #include "sdk/memory.hpp"
+#include "sdk/skeleton.hpp"
 
 #include <array>
 #include <cstdint>
@@ -17,17 +18,25 @@ struct Player {
     Vec3 mins{};
     Vec3 maxs{};
     std::array<Vec3, 8> corners{};
+    std::array<Vec3, kSkelCount> joints{};
+    std::uint32_t joint_mask = 0;
     int health = 0;
     int max_health = 100;
     int team = 0;
     float distance = 0.f;
     float speed = 0.f;
     bool ducked = false;
+
+    bool has_joint(Skel j) const
+    {
+        const int i = static_cast<int>(j);
+        return i >= 0 && i < kSkelCount && (joint_mask & (1u << i)) != 0;
+    }
 };
 
 class Game {
 public:
-    bool tick();
+    bool tick(bool read_bones = false);
     bool attached() const { return attached_; }
     uint32_t build_number() const { return build_number_; }
     const Mat4x4& view_matrix() const { return view_; }

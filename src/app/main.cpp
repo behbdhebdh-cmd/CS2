@@ -83,6 +83,8 @@ static const char* kBones[] = { "Head", "Neck", "Chest", "Pelvis" };
 static const char* kBoxStyle[] = { "Corner Box", "3D Box", "Filled Box" };
 static const char* kHealthPosition[] = { "Left", "Right" };
 static const char* kHeadStyle[] = { "Circle", "Dot", "Box" };
+static const char* kSkeletonMode[] = { "Head only", "Upper body", "Full skeleton" };
+static const char* kSkeletonStyle[] = { "Lines", "Points", "Lines + points" };
 
 static BOOL CALLBACK find_cs2_cb(HWND hwnd, LPARAM)
 {
@@ -253,7 +255,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
             sync_overlay(hwnd, game_hwnd, screen_w, screen_h);
         }
 
-        g_game.tick();
+        g_game.tick(g_menu.vis_enable && g_menu.vis_skeleton);
         OffsetUpdate::instance().tick();
         if (g_game.attached())
             g_vis.tick(g_game.map_name());
@@ -358,6 +360,10 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::Checkbox("Head marker", &g_menu.vis_head);
                     custom::Combo("Head shape", &g_menu.vis_head_style, kHeadStyle, IM_ARRAYSIZE(kHeadStyle));
                     custom::SliderInt("Head size", &g_menu.vis_head_size, 5, 20);
+                    custom::Checkbox("Skeleton", &g_menu.vis_skeleton);
+                    custom::Combo("Skeleton body", &g_menu.vis_skeleton_mode, kSkeletonMode, IM_ARRAYSIZE(kSkeletonMode));
+                    custom::Combo("Skeleton style", &g_menu.vis_skeleton_style, kSkeletonStyle, IM_ARRAYSIZE(kSkeletonStyle));
+                    custom::SliderInt("Skeleton thickness", &g_menu.vis_skeleton_thickness, 8, 30);
                     custom::Checkbox("Distance", &g_menu.vis_distance);
                     custom::Checkbox("Enemies only", &g_menu.vis_team_check);
                     custom::Checkbox("Visible only", &g_menu.vis_visible_only);
@@ -375,6 +381,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::ColorEdit4("Health high", g_menu.health_high, picker_flags);
                     custom::ColorEdit4("Head enemy", g_menu.head_enemy, picker_flags);
                     custom::ColorEdit4("Head team", g_menu.head_team, picker_flags);
+                    custom::ColorEdit4("Skeleton visible", g_menu.skeleton_visible, picker_flags);
+                    custom::ColorEdit4("Skeleton hidden", g_menu.skeleton_hidden, picker_flags);
                     custom::EndChild();
                 }
 

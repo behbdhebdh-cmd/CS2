@@ -529,6 +529,8 @@ void OffsetUpdate::apply_flat(const std::unordered_map<std::string, std::ptrdiff
     n += apply_one(flat, offsets::engine2::dwWindowHeight, { "engine2_dll.dwwindowheight", "dwwindowheight" });
     n += apply_one(flat, offsets::engine2::dwWindowWidth, { "engine2_dll.dwwindowwidth", "dwwindowwidth" });
 
+    n += apply_one(flat, offsets::schema::C_BaseEntity::m_CBodyComponent,
+                   { "c_baseentity.m_cbodycomponent" });
     n += apply_one(flat, offsets::schema::C_BaseEntity::m_pGameSceneNode, { "c_baseentity.m_pgamescenenode", "m_pgamescenenode" });
     n += apply_one(flat, offsets::schema::C_BaseEntity::m_pCollision, { "c_baseentity.m_pcollision", "m_pcollision" });
     n += apply_one(flat, offsets::schema::C_BaseEntity::m_iMaxHealth, { "c_baseentity.m_imaxhealth", "m_imaxhealth" });
@@ -541,6 +543,11 @@ void OffsetUpdate::apply_flat(const std::unordered_map<std::string, std::ptrdiff
 
     n += apply_one(flat, offsets::schema::CGameSceneNode::m_vecAbsOrigin, { "cgamescenenode.m_vecabsorigin", "m_vecabsorigin" });
     n += apply_one(flat, offsets::schema::CGameSceneNode::m_bDormant, { "cgamescenenode.m_bdormant", "m_bdormant" });
+
+    n += apply_one(flat, offsets::schema::CSkeletonInstance::m_modelState,
+                   { "cskeletoninstance.m_modelstate" });
+    n += apply_one(flat, offsets::schema::CBodyComponentSkeletonInstance::m_skeletonInstance,
+                   { "cbodycomponentskeletoninstance.m_skeletoninstance" });
 
     n += apply_one(flat, offsets::schema::C_BaseModelEntity::m_Collision, { "c_basemodelentity.m_collision", "c_basemodelentity.m_collision" });
     n += apply_one(flat, offsets::schema::C_BaseModelEntity::m_vecViewOffset, { "c_basemodelentity.m_vecviewoffset", "m_vecviewoffset" });

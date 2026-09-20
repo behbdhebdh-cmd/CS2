@@ -1,5 +1,7 @@
 #include "features/esp.hpp"
 #include "app/settings.hpp"
+#include "sdk/skel_log.hpp"
+#include "sdk/skeleton.hpp"
 #include "sdk/vis.hpp"
 
 #include "imgui.h"
@@ -13,11 +15,64 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <string>
 
 namespace {
+
+struct SkeletonLink {
+    Skel from;
+    Skel to;
+    SkeletonBodyMode minimum_mode;
+    float min_len;
+    float max_len;
+};
+
+struct SkeletonDot {
+    Skel joint;
+    SkeletonBodyMode minimum_mode;
+};
+
+constexpr SkeletonLink kSkeletonLinks[] = {
+    { Skel::Head,       Skel::Neck,       SkeletonBodyMode::Head,  2.f, 28.f },
+    { Skel::Neck,       Skel::SpineUpper, SkeletonBodyMode::Upper, 2.f, 40.f },
+    { Skel::SpineUpper, Skel::SpineLower, SkeletonBodyMode::Upper, 2.f, 45.f },
+    { Skel::SpineLower, Skel::Pelvis,     SkeletonBodyMode::Upper, 2.f, 50.f },
+    { Skel::Neck,       Skel::LShoulder,  SkeletonBodyMode::Upper, 2.f, 50.f },
+    { Skel::LShoulder,  Skel::LElbow,     SkeletonBodyMode::Upper, 4.f, 55.f },
+    { Skel::LElbow,     Skel::LHand,      SkeletonBodyMode::Upper, 2.f, 50.f },
+    { Skel::Neck,       Skel::RShoulder,  SkeletonBodyMode::Upper, 2.f, 50.f },
+    { Skel::RShoulder,  Skel::RElbow,     SkeletonBodyMode::Upper, 4.f, 55.f },
+    { Skel::RElbow,     Skel::RHand,      SkeletonBodyMode::Upper, 2.f, 50.f },
+    { Skel::Pelvis,     Skel::LHip,       SkeletonBodyMode::Full,  2.f, 50.f },
+    { Skel::LHip,       Skel::LKnee,      SkeletonBodyMode::Full,  4.f, 65.f },
+    { Skel::LKnee,      Skel::LFoot,      SkeletonBodyMode::Full,  2.f, 60.f },
+    { Skel::Pelvis,     Skel::RHip,       SkeletonBodyMode::Full,  2.f, 50.f },
+    { Skel::RHip,       Skel::RKnee,      SkeletonBodyMode::Full,  4.f, 65.f },
+    { Skel::RKnee,      Skel::RFoot,      SkeletonBodyMode::Full,  2.f, 60.f },
+};
+
+constexpr SkeletonDot kSkeletonDots[] = {
+    { Skel::Head,       SkeletonBodyMode::Head },
+    { Skel::Neck,       SkeletonBodyMode::Head },
+    { Skel::SpineUpper, SkeletonBodyMode::Upper },
+    { Skel::SpineLower, SkeletonBodyMode::Upper },
+    { Skel::Pelvis,     SkeletonBodyMode::Upper },
+    { Skel::LShoulder,  SkeletonBodyMode::Upper },
+    { Skel::LElbow,     SkeletonBodyMode::Upper },
+    { Skel::LHand,      SkeletonBodyMode::Upper },
+    { Skel::RShoulder,  SkeletonBodyMode::Upper },
+    { Skel::RElbow,     SkeletonBodyMode::Upper },
+    { Skel::RHand,      SkeletonBodyMode::Upper },
+    { Skel::LHip,       SkeletonBodyMode::Full },
+    { Skel::LKnee,      SkeletonBodyMode::Full },
+    { Skel::LFoot,      SkeletonBodyMode::Full },
+    { Skel::RHip,       SkeletonBodyMode::Full },
+    { Skel::RKnee,      SkeletonBodyMode::Full },
+    { Skel::RFoot,      SkeletonBodyMode::Full },
+};
 
 ImU32 with_a(ImVec4 c, float a)
 {
@@ -286,6 +341,109 @@ void draw_head_marker(ImDrawList* dl, ImVec2 center, float radius, ImVec4 col, H
     dl->AddCircle(center, radius, ImGui::ColorConvertFloat4ToU32(ring), 28, 1.25f);
 }
 
+void draw_skeleton(ImDrawList* dl, const Player& player, const Mat4x4& view, float screen_w, float screen_h,
+                   ImVec4 color, float alpha)
+{
+    if (!g_menu.vis_skeleton || player.joint_mask == 0 || alpha <= 0.01f)
+        return;
+
+    const SkeletonBodyMode mode = static_cast<SkeletonBodyMode>(g_menu.vis_skeleton_mode);
+    const SkeletonStyle style = static_cast<SkeletonStyle>(g_menu.vis_skeleton_style);
+    const bool draw_lines = style != SkeletonStyle::Points;
+    const bool draw_points = style != SkeletonStyle::Lines;
+    const float thickness = std::clamp(g_menu.vis_skeleton_thickness / 10.f, 0.8f, 3.f);
+
+    std::array<ImVec2, kSkelCount> points{};
+    std::array<bool, kSkelCount> attempted{};
+    std::array<bool, kSkelCount> projected{};
+
+    auto project = [&](Skel joint) -> bool {
+        const int i = static_cast<int>(joint);
+        if (!player.has_joint(joint))
+            return false;
+        if (attempted[i])
+            return projected[i];
+        attempted[i] = true;
+        const Vec3& world = player.joints[i];
+        if (!std::isfinite(world.x) || !std::isfinite(world.y) || !std::isfinite(world.z)) {
+            skel_log::write("W2S NaN joint=%d pawn=%p", i, reinterpret_cast<void*>(player.pawn));
+            return false;
+        }
+        Vec2 screen{};
+        if (!world_to_screen(world, view, screen_w, screen_h, screen))
+            return false;
+        if (std::fabs(screen.x) > screen_w * 4.f || std::fabs(screen.y) > screen_h * 4.f)
+            return false;
+        points[i] = ImVec2(screen.x, screen.y);
+        projected[i] = true;
+        return true;
+    };
+
+    color.w *= alpha;
+    if (color.w <= 0.01f)
+        return;
+
+    int lines = 0;
+    int rejected = 0;
+    if (draw_lines) {
+        const ImU32 edge = with_a(ImVec4(0.02f, 0.03f, 0.04f, 1.f), color.w * 0.72f);
+        const ImU32 line = ImGui::ColorConvertFloat4ToU32(color);
+        for (const SkeletonLink& link : kSkeletonLinks) {
+            if (static_cast<int>(mode) < static_cast<int>(link.minimum_mode))
+                continue;
+            if (!player.has_joint(link.from) || !player.has_joint(link.to))
+                continue;
+            const Vec3& a = player.joints[static_cast<int>(link.from)];
+            const Vec3& b = player.joints[static_cast<int>(link.to)];
+            if (!skel_seg_ok(a, b, link.min_len, link.max_len)) {
+                ++rejected;
+                continue;
+            }
+            if (!project(link.from) || !project(link.to))
+                continue;
+            const ImVec2 pa = points[static_cast<int>(link.from)];
+            const ImVec2 pb = points[static_cast<int>(link.to)];
+            const float dx = pa.x - pb.x;
+            const float dy = pa.y - pb.y;
+            if (dx * dx + dy * dy > 420.f * 420.f) {
+                ++rejected;
+                continue;
+            }
+            dl->AddLine(pa, pb, edge, thickness + 1.35f);
+            dl->AddLine(pa, pb, line, thickness);
+            ++lines;
+        }
+    }
+
+    int dots = 0;
+    if (draw_points) {
+        const float radius = std::clamp(1.55f + thickness * 0.58f, 2.f, 3.4f);
+        const ImU32 edge = with_a(ImVec4(0.02f, 0.03f, 0.04f, 1.f), color.w * 0.78f);
+        const ImU32 fill = ImGui::ColorConvertFloat4ToU32(color);
+        for (const SkeletonDot& joint : kSkeletonDots) {
+            if (static_cast<int>(mode) < static_cast<int>(joint.minimum_mode))
+                continue;
+            if (g_menu.vis_head && joint.joint == Skel::Head)
+                continue;
+            if (!project(joint.joint))
+                continue;
+            const ImVec2 p = points[static_cast<int>(joint.joint)];
+            if (p.x < -radius || p.x > screen_w + radius || p.y < -radius || p.y > screen_h + radius)
+                continue;
+            dl->AddCircleFilled(p, radius + 0.8f, edge, 14);
+            dl->AddCircleFilled(p, radius, fill, 14);
+            ++dots;
+        }
+    }
+
+    static bool logged_ok = false;
+    if (!logged_ok && (lines > 0 || dots > 0)) {
+        logged_ok = true;
+        skel_log::write("draw ok pawn=%p mask=0x%05x lines=%d dots=%d rejected=%d",
+                        reinterpret_cast<void*>(player.pawn), player.joint_mask, lines, dots, rejected);
+    }
+}
+
 float distance_alpha(float distance_m, float max_distance_m)
 {
     if (max_distance_m <= 0.f)
@@ -329,7 +487,6 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
     const float glow = g_menu.vis_glow / 12.f;
     const float corner_pct = std::clamp(g_menu.vis_corner / 100.f, 0.14f, 0.36f);
     const float max_dist_m = static_cast<float>(g_menu.vis_max_distance);
-    const bool vis_on = g_menu.vis_visible_only && vis.ready();
 
     for (const Player& p : game.players()) {
         if (g_menu.vis_team_check && p.team == game.local_team())
@@ -337,12 +494,16 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         const float distance_m = p.distance * 0.0254f;
         if (max_dist_m > 0.f && distance_m >= max_dist_m)
             continue;
-        if (vis_on) {
+        bool player_visible = true;
+        if (vis.ready()) {
             const Vec3 from = game.local_head();
-            const Vec3 chest = p.origin + Vec3{ 0.f, 0.f, p.ducked ? 32.f : 48.f };
-            if (!vis.visible(from, p.eye) && !vis.visible(from, chest))
-                continue;
+            const Vec3 head = p.has_joint(Skel::Head) ? p.joints[static_cast<int>(Skel::Head)] : p.eye;
+            const Vec3 chest = p.has_joint(Skel::SpineUpper) ? p.joints[static_cast<int>(Skel::SpineUpper)]
+                                                             : p.origin + Vec3{ 0.f, 0.f, p.ducked ? 32.f : 48.f };
+            player_visible = vis.visible(from, head) || vis.visible(from, chest);
         }
+        if (g_menu.vis_visible_only && !player_visible)
+            continue;
 
         ImVec2 corners[8]{};
         ImVec2 mn, mx;
@@ -362,10 +523,13 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         const bool teammate = p.team == game.local_team();
         const ImVec4 col = from_arr(teammate ? g_menu.box_team : g_menu.box_enemy);
         const ImVec4 head_col = from_arr(teammate ? g_menu.head_team : g_menu.head_enemy);
+        const ImVec4 skeleton_col = from_arr(player_visible ? g_menu.skeleton_visible : g_menu.skeleton_hidden);
         const BoxStyle style = static_cast<BoxStyle>(g_menu.vis_box_style);
 
         if (style == BoxStyle::Filled)
             draw_filled_box(dl, mn, mx, col, alpha);
+
+        draw_skeleton(dl, p, game.view_matrix(), screen_w, screen_h, skeleton_col, alpha);
 
         if (style == BoxStyle::Box3D && n == 8)
             draw_3d_box(dl, corners, col, line_t, glow, alpha);
