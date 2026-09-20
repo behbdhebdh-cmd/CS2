@@ -3,7 +3,7 @@
 struct ImDrawList;
 class Game;
 
-// Damage tracker (health-diff polling) + center hitmarker + killfeed corner.
+// Damage tracker (health-diff polling) + killfeed corner.
 // Zones (head/chest/body) are a heuristic: when the damaged pawn matches the
 // current aim lock, the locked bone decides; otherwise the hit counts as body.
 // Kill rows appear when a recently damaged pawn vanishes from the snapshot.

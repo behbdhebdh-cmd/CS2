@@ -12,12 +12,16 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <Windows.h>
+#include <commdlg.h>
+
+#pragma comment(lib, "comdlg32.lib")
 
 #include <algorithm>
 #include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <fstream>
 #include <sstream>
 
@@ -177,6 +181,40 @@ void apply_accent(const float c[4])
     c::main_color = ImColor(c[0], c[1], c[2], c[3]);
 }
 
+std::string stem_of(const std::string& path)
+{
+    size_t s = path.find_last_of("\\/");
+    size_t e = path.find_last_of('.');
+    const size_t b = (s == std::string::npos) ? 0 : s + 1;
+    if (e == std::string::npos || e < b)
+        return path.substr(b);
+    return path.substr(b, e - b);
+}
+
+std::string utf8_of(const std::wstring& w)
+{
+    if (w.empty())
+        return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    if (n <= 0)
+        return {};
+    std::string s(n, 0);
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+std::wstring wide_of(const std::string& s)
+{
+    if (s.empty())
+        return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    if (n <= 0)
+        return {};
+    std::wstring w(n, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), w.data(), n);
+    return w;
+}
+
 } // namespace
 
 std::string sanitize_config_name(const std::string& raw)
@@ -272,55 +310,11 @@ std::string ConfigStore::path_for(const std::string& name) const
     return dir_ + "\\" + name + ".json";
 }
 
-void ConfigStore::startup()
+// Zentrales JSON-Build: eine Stelle für save() und save_to_file().
+// Alle Toggles (Team-Check, Visible-Check, Head, Skeleton, ...) werden
+// explizit geschrieben, damit Laden den Zustand exakt wiederherstellt.
+static std::string build_config_json(const std::string& clean)
 {
-    static bool console = false;
-    if (!console) {
-        console = true;
-        AllocConsole();
-        SetConsoleTitleA("CS2 config log");
-        FILE* out = nullptr;
-        freopen_s(&out, "CONOUT$", "w", stdout);
-    }
-    ensure_dir();
-    log("startup · config dir %s", dir_.c_str());
-    refresh();
-}
-
-void ConfigStore::refresh()
-{
-    ensure_dir();
-    names_.clear();
-    WIN32_FIND_DATAA fd{};
-    const std::string pat = dir_ + "\\*.json";
-    HANDLE h = FindFirstFileA(pat.c_str(), &fd);
-    if (h == INVALID_HANDLE_VALUE) {
-        log("refresh · 0 configs in %s", dir_.c_str());
-        return;
-    }
-    do {
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            continue;
-        std::string n = fd.cFileName;
-        if (n.size() > 5 && n.rfind(".json") == n.size() - 5)
-            n.resize(n.size() - 5);
-        if (!sanitize_config_name(n).empty())
-            names_.push_back(n);
-    } while (FindNextFileA(h, &fd));
-    FindClose(h);
-    std::sort(names_.begin(), names_.end());
-    log("refresh · %zu configs", names_.size());
-}
-
-bool ConfigStore::save(const std::string& name)
-{
-    const std::string clean = sanitize_config_name(name);
-    if (clean.empty()) {
-        log("save failed · invalid name");
-        return false;
-    }
-    ensure_dir();
-
     float accent[4] = {
         c::main_color.Value.x, c::main_color.Value.y,
         c::main_color.Value.z, c::main_color.Value.w
@@ -361,14 +355,6 @@ bool ConfigStore::save(const std::string& name)
     json_int(o, "spec_anchor", g_menu.spec_anchor);
     json_int(o, "spec_off_x", g_menu.spec_off_x);
     json_int(o, "spec_off_y", g_menu.spec_off_y);
-    json_bool(o, "hit_enable", g_menu.hit_enable);
-    json_int(o, "hit_size", g_menu.hit_size);
-    json_int(o, "hit_thick", g_menu.hit_thick);
-    json_float(o, "hit_alpha", g_menu.hit_alpha);
-    json_int(o, "hit_time", g_menu.hit_time);
-    json_vec4(o, "hit_normal", g_menu.hit_normal);
-    json_vec4(o, "hit_head", g_menu.hit_head);
-    json_bool(o, "hit_debug", g_menu.hit_debug);
     json_bool(o, "hitlog_enable", g_menu.hitlog_enable);
     json_int(o, "hitlog_max", g_menu.hitlog_max);
     json_float(o, "hitlog_time", g_menu.hitlog_time);
@@ -434,52 +420,16 @@ bool ConfigStore::save(const std::string& name)
     json_vec4(o, "skeleton_hidden", g_menu.skeleton_hidden);
     json_vec4(o, "weapon_icon_color", g_menu.weapon_icon_color, false);
     o << "}\n";
-
-    const std::string path = path_for(clean);
-    const std::string body = o.str();
-    HANDLE file = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        log("save failed · CreateFile %s err=%lu dir=%s", path.c_str(), GetLastError(), dir_.c_str());
-        return false;
-    }
-    DWORD written = 0;
-    const BOOL ok = WriteFile(file, body.data(), static_cast<DWORD>(body.size()), &written, nullptr);
-    const DWORD err = GetLastError();
-    CloseHandle(file);
-    if (!ok || written != body.size()) {
-        log("save failed · WriteFile %s err=%lu wrote=%lu/%zu", path.c_str(), err, written, body.size());
-        return false;
-    }
-    last_loaded_ = clean;
-    refresh();
-    log("saved · %s (%s)", clean.c_str(), path.c_str());
-    return true;
+    return o.str();
 }
 
-bool ConfigStore::load(const std::string& name)
+// Zentrales JSON-Parse: eine Stelle für load() und load_from_file().
+// Jeder Toggle wird einzeln gelesen; fehlende Keys behalten Defaults
+// (Abwärtskompatibilität mit alten Configs). Unbekannte/Alt-Keys
+// (z.B. entfernter Hitmarker) werden still ignoriert.
+static bool parse_config_json(const std::string& json, MenuState& next, int& got)
 {
-    const std::string clean = sanitize_config_name(name);
-    if (clean.empty()) {
-        log("load failed · invalid name");
-        return false;
-    }
-    ensure_dir();
-    const std::string path = path_for(clean);
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        log("load failed · missing %s.json", clean.c_str());
-        return false;
-    }
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    const std::string json = ss.str();
-    if (json.size() < 8 || json.find('{') == std::string::npos) {
-        log("load failed · corrupt %s.json", clean.c_str());
-        return false;
-    }
-
-    MenuState next{};
-    int got = 0;
+    got = 0;
     auto b = [&](const char* k, bool& d) { if (read_bool(json, k, d)) ++got; };
     auto i = [&](const char* k, int& d, int lo, int hi) { if (read_int(json, k, d, lo, hi)) ++got; };
     auto f = [&](const char* k, float& d, float lo, float hi) { if (read_float(json, k, d, lo, hi)) ++got; };
@@ -516,14 +466,6 @@ bool ConfigStore::load(const std::string& name)
     i("spec_anchor", next.spec_anchor, 0, 3);
     i("spec_off_x", next.spec_off_x, -400, 400);
     i("spec_off_y", next.spec_off_y, -400, 400);
-    b("hit_enable", next.hit_enable);
-    i("hit_size", next.hit_size, 6, 20);
-    i("hit_thick", next.hit_thick, 1, 5);
-    f("hit_alpha", next.hit_alpha, 0.2f, 1.f);
-    i("hit_time", next.hit_time, 150, 500);
-    c4("hit_normal", next.hit_normal);
-    c4("hit_head", next.hit_head);
-    b("hit_debug", next.hit_debug);
     b("hitlog_enable", next.hitlog_enable);
     i("hitlog_max", next.hitlog_max, 1, 8);
     f("hitlog_time", next.hitlog_time, 2.f, 8.f);
@@ -610,14 +552,211 @@ bool ConfigStore::load(const std::string& name)
     c4("skeleton_visible", next.skeleton_visible);
     c4("skeleton_hidden", next.skeleton_hidden);
     c4("weapon_icon_color", next.weapon_icon_color);
+    return got > 0;
+}
+
+static bool write_text_file(const std::string& path, const std::string& body)
+{
+    HANDLE file = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD written = 0;
+    const BOOL ok = WriteFile(file, body.data(), static_cast<DWORD>(body.size()), &written, nullptr);
+    CloseHandle(file);
+    return ok && written == body.size();
+}
+
+static bool read_text_file(const std::string& path, std::string& out)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return false;
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+void ConfigStore::startup()
+{
+    static bool console = false;
+    if (!console) {
+        console = true;
+        AllocConsole();
+        SetConsoleTitleA("CS2 config log");
+        FILE* out = nullptr;
+        freopen_s(&out, "CONOUT$", "w", stdout);
+    }
+    ensure_dir();
+    log("startup · config dir %s", dir_.c_str());
+    refresh();
+}
+
+void ConfigStore::refresh()
+{
+    ensure_dir();
+    names_.clear();
+    WIN32_FIND_DATAA fd{};
+    const std::string pat = dir_ + "\\*.json";
+    HANDLE h = FindFirstFileA(pat.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        log("refresh · 0 configs in %s", dir_.c_str());
+        return;
+    }
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        std::string n = fd.cFileName;
+        if (n.size() > 5 && n.rfind(".json") == n.size() - 5)
+            n.resize(n.size() - 5);
+        if (!sanitize_config_name(n).empty())
+            names_.push_back(n);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    std::sort(names_.begin(), names_.end());
+    log("refresh · %zu configs", names_.size());
+}
+
+bool ConfigStore::save(const std::string& name)
+{
+    const std::string clean = sanitize_config_name(name);
+    if (clean.empty()) {
+        log("save failed · invalid name");
+        return false;
+    }
+    ensure_dir();
+    return save_to_file(path_for(clean));
+}
+
+bool ConfigStore::load(const std::string& name)
+{
+    const std::string clean = sanitize_config_name(name);
+    if (clean.empty()) {
+        log("load failed · invalid name");
+        return false;
+    }
+    ensure_dir();
+    return load_from_file(path_for(clean));
+}
+
+bool ConfigStore::save_to_file(const std::string& path)
+{
+    if (path.empty()) {
+        log("save failed · empty path");
+        return false;
+    }
+    const std::string stem = sanitize_config_name(stem_of(path));
+    const std::string body = build_config_json(stem.empty() ? std::string("config") : stem);
+    if (!write_text_file(path, body)) {
+        log("save failed · %s err=%lu", path.c_str(), GetLastError());
+        return false;
+    }
+    if (!stem.empty())
+        last_loaded_ = stem;
+    refresh();
+    log("saved · %s (team=%d visible_only=%d)", path.c_str(),
+        (int)g_menu.vis_team_check, (int)g_menu.vis_visible_only);
+    return true;
+}
+
+bool ConfigStore::load_from_file(const std::string& path)
+{
+    if (path.empty()) {
+        log("load failed · empty path");
+        return false;
+    }
+    std::string json;
+    if (!read_text_file(path, json)) {
+        log("load failed · missing %s", path.c_str());
+        return false;
+    }
+    if (json.size() < 8 || json.find('{') == std::string::npos) {
+        log("load failed · corrupt %s", path.c_str());
+        return false;
+    }
+
+    MenuState next{};
+    int got = 0;
+    if (!parse_config_json(json, next, got)) {
+        log("load failed · no fields %s", path.c_str());
+        return false;
+    }
 
     g_menu = next;
     apply_accent(g_menu.accent);
-    last_loaded_ = clean;
-    log("loaded · %s  fields=%d  vis_enable=%d health=%d head=%d skeleton=%d box=%d",
-        clean.c_str(), got, (int)g_menu.vis_enable, (int)g_menu.vis_health,
-        (int)g_menu.vis_head, (int)g_menu.vis_skeleton, g_menu.vis_box_style);
-    return got > 0;
+    const std::string stem = sanitize_config_name(stem_of(path));
+    if (!stem.empty())
+        last_loaded_ = stem;
+    log("loaded · %s fields=%d team=%d visible_only=%d head=%d skel=%d",
+        path.c_str(), got, (int)g_menu.vis_team_check, (int)g_menu.vis_visible_only,
+        (int)g_menu.vis_head, (int)g_menu.vis_skeleton);
+    return true;
+}
+
+namespace {
+
+const wchar_t* cfg_file_filter()
+{
+    // Doppelt-nullterminierte Filterliste fuer OPENFILENAMEW.
+    return L"Config (*.json;*.cfg)\0*.json;*.cfg\0"
+           L"JSON config (*.json)\0*.json\0"
+           L"CFG config (*.cfg)\0*.cfg\0"
+           L"All files (*.*)\0*.*\0";
+}
+
+} // namespace
+
+bool ConfigStore::save_as_dialog(HWND owner, const std::string& initial_name)
+{
+    ensure_dir();
+    const std::string base = sanitize_config_name(
+        initial_name.empty() ? last_loaded_ : initial_name);
+    const std::wstring dir_w = wide_of(dir_);
+    wchar_t file[MAX_PATH]{};
+    const std::wstring init_w = wide_of(base.empty() ? std::string("config") : base);
+    wcsncpy_s(file, init_w.c_str(), _TRUNCATE);
+
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFilter = cfg_file_filter();
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = dir_w.empty() ? nullptr : dir_w.c_str();
+    ofn.lpstrDefExt = L"json";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle = L"Save config as...";
+    if (!GetSaveFileNameW(&ofn))
+        return false; // Benutzerabbruch, kein Fehlerstatus.
+
+    std::string path = utf8_of(file);
+    if (path.find_last_of('.') == std::string::npos ||
+        path.find_last_of('.') < path.find_last_of("\\/"))
+        path += ".json";
+    return save_to_file(path);
+}
+
+bool ConfigStore::open_dialog(HWND owner)
+{
+    ensure_dir();
+    const std::wstring dir_w = wide_of(dir_);
+    wchar_t file[MAX_PATH]{};
+
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFilter = cfg_file_filter();
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = dir_w.empty() ? nullptr : dir_w.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle = L"Open config...";
+    if (!GetOpenFileNameW(&ofn))
+        return false; // Benutzerabbruch, kein Fehlerstatus.
+
+    return load_from_file(utf8_of(file));
 }
 
 bool ConfigStore::remove(const std::string& name)

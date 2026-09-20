@@ -20,6 +20,7 @@ add_executable(CS2 WIN32
     src/features/hotkeys.cpp
     src/features/spec.cpp
     src/features/hitlog.cpp
+    src/features/radar.cpp
     src/features/weapon_icons.cpp
     "${LIAN}/imgui.cpp"
     "${LIAN}/imgui_draw.cpp"

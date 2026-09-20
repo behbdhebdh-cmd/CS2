@@ -114,16 +114,6 @@ struct MenuState {
     int  spec_off_x = 0;
     int  spec_off_y = 0;
 
-    // Hitmarker
-    bool hit_enable = true;
-    int  hit_size = 14;      // half-length px, 6..20
-    int  hit_thick = 3;      // line px, 1..5
-    float hit_alpha = 1.f;   // 0.2..1
-    int  hit_time = 300;     // ms, 150..500
-    float hit_normal[4] = { 1.f, 1.f, 1.f, 1.f };
-    float hit_head[4] = { 0.98f, 0.72f, 0.30f, 1.f };
-    bool hit_debug = false;
-
     // Damage log
     bool hitlog_enable = true;
     int  hitlog_max = 5;       // 1..8

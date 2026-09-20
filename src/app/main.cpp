@@ -6,6 +6,7 @@
 #include "features/hotkeys.hpp"
 #include "features/spec.hpp"
 #include "features/hitlog.hpp"
+#include "features/radar.hpp"
 #include "features/weapon_icons_data.hpp"
 #include "features/combat.hpp"
 #include "sdk/game.hpp"
@@ -96,6 +97,7 @@ static const char* kHeadStyle[] = { "Circle", "Dot", "Box" };
 static const char* kSkeletonMode[] = { "Head only", "Upper body", "Full skeleton" };
 static const char* kSkeletonStyle[] = { "Lines", "Points", "Lines + points" };
 static const char* kAnchors[] = { "Top right", "Top left", "Bottom left", "Bottom right" };
+static const char* kRadarFilter[] = { "Everyone", "Enemies only", "Teammates only" };
 
 static BOOL CALLBACK find_cs2_cb(HWND hwnd, LPARAM)
 {
@@ -250,12 +252,14 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
     tabs_info.push_back({ "Combat",   { "Aim", "Trigger" } });
     tabs_info.push_back({ "Settings", { "Menu", "Configs" } });
     tabs_info.push_back({ "Misc",     { "Team", "Hitlog" } });
+    tabs_info.push_back({ "Radar",    { "Radar" } });
 
     c_tabs p_tabs(tabs_info);
     CNotifications p_notif;
     g_vis.set_search_dir("D:\\CS2\\maps");
     OffsetUpdate::instance().start();
     ConfigStore::instance().startup();
+    radar_startup();
     static char g_cfg_name[64] = "config";
     static std::string g_cfg_selected;
 
@@ -323,9 +327,11 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
         draw_hotkeys(GetBackgroundDrawList());
         draw_spectators(GetBackgroundDrawList(), g_game, ow, oh);
         hitlog_draw(GetBackgroundDrawList(), g_game, ow, oh);
+        radar_draw(GetBackgroundDrawList(), g_game, ow, oh);
 
         combat_tick(g_game, g_vis, ImGui::GetIO().DeltaTime, g_menu_open);
         hitlog_tick(g_game);
+        radar_housekeep(g_menu_open);
 
         c::anim::speed = ImGui::GetIO().DeltaTime * 12.f;
         c::second_color = utils::GetDarkColor(c::main_color);
@@ -617,6 +623,35 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                         ImGui::Dummy(ImVec2(0, 2));
                         {
                             const float btn_w = (inner_w - 12.f) * 0.5f;
+                            if (custom::Button("Save As...", ImVec2(btn_w, 34))) {
+                                if (cfgs.save_as_dialog(hwnd, g_cfg_name)) {
+                                    const std::string sel = cfgs.last_loaded();
+                                    if (!sel.empty()) {
+                                        g_cfg_selected = sel;
+                                        std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", sel.c_str());
+                                    }
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                                } else if (strstr(cfgs.status().c_str(), "failed")) {
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                }
+                            }
+                            ImGui::SameLine(0, 12.f);
+                            if (custom::Button("Open...", ImVec2(btn_w, 34))) {
+                                if (cfgs.open_dialog(hwnd)) {
+                                    const std::string sel = cfgs.last_loaded();
+                                    if (!sel.empty()) {
+                                        g_cfg_selected = sel;
+                                        std::snprintf(g_cfg_name, sizeof(g_cfg_name), "%s", sel.c_str());
+                                    }
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_CHECK_FILL, c::main_color);
+                                } else if (strstr(cfgs.status().c_str(), "failed")) {
+                                    p_notif.AddMessage(cfgs.status().c_str(), ICON_ALERT_FILL, ImColor(210, 120, 120));
+                                }
+                            }
+                            ImGui::NewLine();
+                        }
+                        {
+                            const float btn_w = (inner_w - 12.f) * 0.5f;
                             if (custom::Button("Refresh", ImVec2(btn_w, 34))) {
                                 cfgs.refresh();
                                 p_notif.AddMessage(cfgs.status().c_str(), ICON_REFRESH_1_FILL, c::main_color);
@@ -706,21 +741,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                 if (p_tabs.IsTabActive(6))
                 {
                     ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
-                    custom::Child("Hitmarker##L", ImVec2(half_w, full_h), true);
-                    custom::Checkbox("Enable", &g_menu.hit_enable);
-                    custom::SliderInt("Size", &g_menu.hit_size, 6, 20);
-                    custom::SliderInt("Thickness", &g_menu.hit_thick, 1, 5);
-                    custom::SliderFloat("Opacity", &g_menu.hit_alpha, 0.2f, 1.f, "%.2f");
-                    custom::SliderInt("Fade (ms)", &g_menu.hit_time, 150, 500);
-                    custom::ColorEdit4("Normal", g_menu.hit_normal, picker_flags);
-                    custom::ColorEdit4("Headshot", g_menu.hit_head, picker_flags);
-                    custom::Checkbox("Debug log", &g_menu.hit_debug);
-                    ImGui::Dummy(ImVec2(0, 6));
-                    ImGui::TextWrapped("Center X on damage. Headshot color applies when the hit lands on the locked head bone.");
-                    custom::EndChild();
-
-                    ImGui::SameLine(0, ImGui::GetStyle().ItemSpacing.x * 3);
-                    custom::Child("Damage log##R", ImVec2(half_w, full_h), true);
+                    custom::Child("Damage log", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
                     custom::Checkbox("Enable", &g_menu.hitlog_enable);
                     custom::SliderInt("Max entries", &g_menu.hitlog_max, 1, 8);
                     custom::SliderFloat("Lifetime (s)", &g_menu.hitlog_time, 2.f, 8.f, "%.1f");
@@ -733,6 +754,41 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                     custom::ColorEdit4("Body", g_menu.hitlog_body, picker_flags);
                     ImGui::Dummy(ImVec2(0, 6));
                     ImGui::TextWrapped("Health-diff feed. Zones are a heuristic from the aim lock; kills show the current weapon glyph.");
+                    custom::EndChild();
+                }
+
+                if (p_tabs.IsTabActive(7))
+                {
+                    ImGui::SetCursorPos(ImVec2(200.f, 85 + page_offset));
+                    custom::Child("Radar", ImVec2(ImGui::GetContentRegionAvail().x - 21, full_h), true);
+                    if (custom::Checkbox("Enable", &g_radar.enable))
+                        radar_mark_dirty();
+                    if (custom::Combo("Filter", &g_radar.filter, kRadarFilter, IM_ARRAYSIZE(kRadarFilter)))
+                        radar_mark_dirty();
+                    if (custom::Checkbox("Heading-up (rotate)", &g_radar.rotate))
+                        radar_mark_dirty();
+                    if (custom::SliderInt("Size", &g_radar.size, 140, 320))
+                        radar_mark_dirty();
+                    if (custom::SliderFloat("Opacity", &g_radar.opacity, 0.30f, 1.f, "%.2f"))
+                        radar_mark_dirty();
+                    if (custom::SliderFloat("Range (m)", &g_radar.range, 10.f, 60.f, "%.0f"))
+                        radar_mark_dirty();
+                    if (custom::Combo("Position", &g_radar.anchor, kAnchors, IM_ARRAYSIZE(kAnchors)))
+                        radar_mark_dirty();
+                    if (custom::SliderInt("Offset X", &g_radar.off_x, -600, 600))
+                        radar_mark_dirty();
+                    if (custom::SliderInt("Offset Y", &g_radar.off_y, -600, 600))
+                        radar_mark_dirty();
+                    if (custom::ColorEdit4("Enemy", g_radar.enemy, picker_flags))
+                        radar_mark_dirty();
+                    if (custom::ColorEdit4("Team", g_radar.team, picker_flags))
+                        radar_mark_dirty();
+                    if (custom::ColorEdit4("Local arrow", g_radar.local, picker_flags))
+                        radar_mark_dirty();
+                    if (custom::ColorEdit4("Rings", g_radar.ring, picker_flags))
+                        radar_mark_dirty();
+                    ImGui::Dummy(ImVec2(0, 6));
+                    ImGui::TextWrapped("Dots outside the range clamp to the rim and dim. Saved to radar.json when the menu closes.");
                     custom::EndChild();
                 }
 

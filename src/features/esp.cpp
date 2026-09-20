@@ -552,9 +552,10 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
 
     for (const Player& p : game.players()) {
         const bool teammate = p.team == game.local_team();
-        // Teammates draw with team colors when team names are on,
-        // even with "Enemies only" active. Otherwise the old rule holds.
-        if (teammate && !g_menu.vis_team_names && g_menu.vis_team_check)
+        // Enemies-only gate: exakt der Team-Check-Toggle, sonst nichts.
+        // vis_team_names / vis_team_distance sind reine Zusatzfilter unten
+        // und duerfen das Ausblenden nicht beeinflussen.
+        if (teammate && g_menu.vis_team_check)
             continue;
         const float distance_m = p.distance * 0.0254f;
         if (max_dist_m > 0.f && distance_m >= max_dist_m)
@@ -597,25 +598,25 @@ void draw_players(ImDrawList* dl, const Game& game, const VisCheck& vis, float s
         else if (style == BoxStyle::Corner)
             draw_corner_box(dl, mn, mx, col, beam, glow, corner_pct, alpha);
 
-        // Teammates: name in team color over the box, optional dimmed
-        // distance below it. Same placement/size/gap as enemy layout.
-        // Health, head marker, and weapon icon stay enemy-only to keep
-        // team ESP quiet.
+        // Name, Health, Head, Weapon-Icon: gelten fuer Gegner UND Team,
+        // sobald der Spieler das ESP-Skip oben ueberstanden hat.
+        // Team-Check aus => Teammitglieder werden vollstaendig gerendert
+        // (Box, Health, Name, Distanz, Icon) in Team-Farben.
         if (!p.name.empty())
             draw_player_name(dl, mn, mx, p.name, alpha, teammate ? team_name_col : IM_COL32(235, 240, 246, 230));
 
         draw_skeleton(dl, p, game.view_matrix(), screen_w, screen_h, skeleton_col, alpha);
 
-        if (!teammate && g_menu.vis_health)
+        if (g_menu.vis_health)
             draw_health_bar(dl, mn, mx, hp, alpha, time_s);
 
-        if ((!teammate && g_menu.vis_distance) || (teammate && g_menu.vis_team_distance))
+        if (g_menu.vis_distance || (teammate && g_menu.vis_team_distance))
             draw_distance_label(dl, mn, mx, distance_m, teammate ? alpha * 0.75f : alpha);
 
-        if (!teammate && g_menu.vis_weapon_icon && !p.weapon_icon_utf8.empty())
+        if (g_menu.vis_weapon_icon && !p.weapon_icon_utf8.empty())
             draw_weapon_icon(dl, mn, mx, p.weapon_icon_utf8, alpha);
 
-        if (!teammate && g_menu.vis_head) {
+        if (g_menu.vis_head) {
             const Vec3 head_anchor = p.eye + (p.head - p.eye) * 0.45f;
             Vec2 head_screen{};
             if (world_to_screen(head_anchor, game.view_matrix(), screen_w, screen_h, head_screen)) {

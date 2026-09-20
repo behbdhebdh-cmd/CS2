@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+struct HWND__; typedef HWND__* HWND;
+
 class ConfigStore {
 public:
     static ConfigStore& instance();
@@ -12,6 +14,12 @@ public:
     bool save(const std::string& name);
     bool load(const std::string& name);
     bool remove(const std::string& name);
+    // Freie Pfade (Save As / Open): akzeptieren .json und .cfg.
+    bool save_to_file(const std::string& path);
+    bool load_from_file(const std::string& path);
+    // Native Explorer-Dialoge (modal zum Overlay). false = abgebrochen.
+    bool save_as_dialog(HWND owner, const std::string& initial_name);
+    bool open_dialog(HWND owner);
     void reset_defaults();
     bool apply_preset(int id);
     static int preset_count() { return 3; }
