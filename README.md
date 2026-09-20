@@ -2,7 +2,6 @@
 
 **Wiki:** [wikis/index.md](wikis/index.md) — getting started, ESP, menu, offsets, architecture, build, troubleshooting.
 
-Private bot-match overlay for a personal CS2 HVH server.
 
 ## Status
 
